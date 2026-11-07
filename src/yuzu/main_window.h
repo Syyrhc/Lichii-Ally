@@ -270,6 +270,8 @@ private:
     void ConnectMenuEvents();
     void UpdateMenuState();
 
+    void AutoBindFirstControllerIfDefault();
+
     void SetupPrepareForSleep();
 
     void PreventOSSleep();

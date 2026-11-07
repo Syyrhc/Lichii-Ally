@@ -13,40 +13,43 @@
 <h1 align="center">Lichii Ally</h1>
 
 <p align="center">
-  <strong>Handheld-tuned edition of the Lichii Nintendo Switch and Switch 2 emulator for the ASUS ROG Xbox Ally X</strong>
+  <strong>Handheld-tuned edition of the Lichii Nintendo Switch and Switch 2 emulator for the ASUS ROG Xbox Ally X, ROG Ally, Lenovo Legion Go, MSI Claw, Steam Deck, and Windows Handheld PCs</strong>
 </p>
 
 <p align="center">
   <a href="https://github.com/ChrysthianChrisley/Lichii-Ally/releases/latest"><strong>Download Latest Release</strong></a>
-  &nbsp;&middot;&nbsp;
-  <a href="docs/README.pt-BR.md">Português (Brasil)</a>
 </p>
 
 ---
 
-**Lichii Ally** is a pre-configured, ready-to-run distribution of the open-source [Lichii](https://github.com/zortos293/Lichii) Nintendo Switch and Switch 2 emulator, engineered specifically around the hardware architecture of the **ASUS ROG Xbox Ally X** (`AMD Ryzen AI Z2 Extreme`, `Radeon 890M` RDNA 3.5, `24 GB LPDDR5X-8000`, and `120 Hz` `AMD FreeSync Premium VRR` display).
+**Lichii Ally** is a pre-configured, ready-to-run distribution of the open-source [Lichii](https://github.com/zortos293/Lichii) Nintendo Switch and Switch 2 emulator, engineered primarily around the **ASUS ROG Xbox Ally X** (`AMD Ryzen AI Z2 Extreme`, `Radeon 890M` RDNA 3.5, `24 GB LPDDR5X-8000`, and `120 Hz` `AMD FreeSync Premium VRR` display) while dynamically adapting to modern Windows gaming handhelds.
 
-Combining the zero-setup usability of **Frizti v3** with upstream stability and renderer fixes from `nx2`, Lichii Ally ships with all performance switches, hybrid CPU scheduling rules, unified memory budgets, and VRR frame-pacing targets enabled out of the box.
+Combining the zero-setup usability of **Frizti v3** with upstream stability and renderer fixes from `nx2`, Lichii Ally ships with two architecture-specific packages (`AVX-512` and `Universal AVX2`) and automatic runtime detection of CPU core topology and physical RAM capacity (`16 GB` vs. `24 GB+`), providing out-of-the-box support across ASUS ROG Ally, Lenovo Legion Go, MSI Claw, Steam Deck, Ayaneo, GPD, and OneXPlayer devices.
 
-## Downloads
+## Downloads and Handheld Compatibility
 
-Download the archive matching your processor from the [Releases page](https://github.com/ChrysthianChrisley/Lichii-Ally/releases/latest), extract `Lichii-Ally`, and run `lichii.exe`:
+Download the archive matching your processor architecture from the [Releases page](https://github.com/ChrysthianChrisley/Lichii-Ally/releases/latest), extract `Lichii-Ally`, and run `lichii.exe`:
 
-| Target Hardware | Recommended Package | Compiler Target |
-|---|---|---|
-| **ASUS ROG Xbox Ally X** *(Ryzen AI Z2 Extreme — Zen 5 + Zen 5c, 24 GB RAM)* | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, `mtune=znver5`, ThinLTO + PGO) |
-| **ASUS ROG Ally X / ROG Ally Z1 Extreme** *(Ryzen Z1 Extreme — Zen 4)* | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, ThinLTO + PGO) |
-| **ASUS ROG Xbox Ally (Base)** *(Ryzen Z2 A — Zen 2)*, **Steam Deck (Windows)**, and other x64 PCs | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
+| Handheld / Target Hardware | Processor Architecture | RAM | Recommended Package | Compiler Target |
+|---|---|---|---|---|
+| **ASUS ROG Xbox Ally X** | Ryzen AI Z2 Extreme (`Zen 5 + Zen 5c`) | 24 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, `mtune=znver5`, ThinLTO + PGO) |
+| **ASUS ROG Ally X / ROG Ally (Z1E & Z1)** | Ryzen Z1 Extreme / Z1 (`Zen 4`) | 16–24 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, ThinLTO + PGO) |
+| **Lenovo Legion Go / Go 2 / Go S (Z1E)** | Ryzen Z2 Extreme / Z1 Extreme (`Zen 5 / Zen 4`) | 16–32 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, ThinLTO + PGO) |
+| **Ayaneo / GPD / OneXPlayer (HX 370 / 8840U / 7840U)** | Ryzen AI 9 HX 370 / Ryzen 7 8840U (`Zen 5 / Zen 4`) | 16–64 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, ThinLTO + PGO) |
+| **ASUS ROG Xbox Ally (Base)** | Ryzen Z2 A (`Zen 2`, no AVX-512) | 16 GB | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
+| **Lenovo Legion Go S (Z2 Go)** | Ryzen Z2 Go (`Zen 3+`, no AVX-512) | 16–32 GB | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
+| **MSI Claw 8 AI+ / 7 AI+ / A1M** | Intel Core Ultra 200V / 100H (no AVX-512) | 16–32 GB | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
+| **Steam Deck LCD / OLED (Windows)** and other x64 PCs | Custom AMD `Zen 2` APU / x86-64 CPUs | 16 GB+ | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
 
-> **Note:** Archives ending in `-debug-symbols-not-needed-to-play.zip` contain `.pdb` debugging symbols for crash analysis only and are not required for gameplay. If Windows prompts for Visual C++ runtime libraries on a clean installation, run `vc_redist.x64.exe` included inside the `Lichii-Ally` directory.
+> **Important:** Processors without `AVX-512` support (Intel Core Ultra on MSI Claw, AMD `Zen 2` on Steam Deck and ROG Xbox Ally Base, and AMD `Zen 3+` on Legion Go S Z2 Go) **must** use the `Universal-AVX2.zip` package. Archives ending in `-debug-symbols-not-needed-to-play.zip` contain `.pdb` debugging symbols for crash analysis only and are not required for gameplay. If Windows prompts for Visual C++ runtime libraries on a clean installation, run `vc_redist.x64.exe` included inside the `Lichii-Ally` directory.
 
 ## Hardware-Specific Optimizations
 
-1. **Windows 11 Hybrid Core Scheduling (`Zen 5 + Zen 5c`):**
+1. **Windows 11 Hybrid Core Scheduling (`Zen 5 + Zen 5c` and Heterogeneous CPUs):**
    - Queries processor core `EfficiencyClass` topology via `GetLogicalProcessorInformationEx` and disables Windows *EcoQoS / Power Throttling* on critical emulation threads.
-   - Dedicates full **Zen 5 performance cores (up to 5.0 GHz)** to `GpuBack` and `GpuFront`, while isolating background Vulkan shader compilation workers onto the **5 Zen 5c efficiency cores** to prevent clock drops and frame-time spikes.
-2. **24 GB Unified Memory Allocation:**
-   - Detects integrated APU hosts with 24 GB of physical RAM and scales the Vulkan texture cache budget to **7 GiB** (Conservative) or **8 GiB** (Aggressive), preserving safe system memory headroom for Windows, JIT translation, and shader compilation while avoiding the 4 GiB cap designed for 16 GB APUs.
+   - Dedicates full performance cores (such as **Zen 5 up to 5.0 GHz** on Ryzen AI Z2 Extreme / HX 370) to `GpuBack` and `GpuFront`, while isolating background Vulkan shader compilation workers onto efficiency cores (`Zen 5c` / E-cores) to prevent clock drops and frame-time spikes. Automatically adapts on homogeneous 8-core (`Zen 4`) and 4-core (`Zen 2` / `Zen 3+`) handhelds.
+2. **Dynamic Unified Memory Allocation (16 GB vs. 24 GB+ APUs):**
+   - Inspects host physical RAM at startup in `Device::CollectPhysicalMemoryInfo`: scales the Vulkan texture cache budget to **7 GiB** (Conservative) or **8 GiB** (Aggressive) with a **6,000-pipeline** ceiling on 24 GB+ handhelds (ROG Xbox Ally X, ROG Ally X, Legion Go 2, MSI Claw 8 AI+), while automatically maintaining a safe **4–6 GiB** budget and **3,500-pipeline** ceiling on 16 GB handhelds (ROG Ally Z1E, Legion Go 1, Steam Deck) so host memory is never exhausted.
 3. **APU-Calibrated Asynchronous Shader Compilation:**
    - Caps concurrent Vulkan pipeline compilation workers on integrated GPUs to **6 threads** (down from 15), preventing CPU package power starvation and host RAM spikes on 15–35 W handhelds.
    - Stores pipeline caches in dedicated `vulkan-ally` files and automatically migrates existing `vulkan-frizti` or mainline `vulkan` caches on first launch.
@@ -96,6 +99,7 @@ cmake --build build --target yuzu yuzu-cmd --parallel
 ## Credits and License
 
 Lichii Ally builds upon the open-source work of:
+- **[Lichii Ally](https://github.com/ChrysthianChrisley/Lichii-Ally)** maintained and optimized for Windows handhelds by **Chrys (ChrysthianChrisley)**
 - **[Lichii](https://github.com/zortos293/Lichii)** by Zortos and contributors
 - **[Frizti's Lichii Builds](https://github.com/Frizti/Lichii)** (zero-setup Ocarina of Time workflow, Dynamic FPS integration with **Dark**, and shader workarounds with **Evil**)
 - **[Eglantine](https://github.com/Djihads80/Eglantine)** (Camille LaVey), **Eden**, **yuzu**, and **Sudachi**

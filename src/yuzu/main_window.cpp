@@ -168,6 +168,7 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 #include "hid_core/frontend/emulated_controller.h"
 #include "hid_core/hid_core.h"
 #include "input_common/drivers/virtual_amiibo.h"
+#include "input_common/main.h"
 
 // Video Core //
 #include "video_core/gpu.h"
@@ -441,6 +442,7 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     ConnectWidgetEvents();
 
     QtCommon::SetupHID();
+    AutoBindFirstControllerIfDefault();
     controller_dialog->refreshConfiguration();
 
     UpdateWindowTitle();
@@ -1601,6 +1603,71 @@ void MainWindow::ConnectWidgetEvents() {
 
     connect(this, &MainWindow::UpdateThemedIcons, multiplayer_state,
             &MultiplayerState::UpdateThemedIcons);
+}
+
+void MainWindow::AutoBindFirstControllerIfDefault() {
+    if (!input_subsystem || !QtCommon::system) {
+        return;
+    }
+
+    auto* emulated_controller_p1 =
+        QtCommon::system->HIDCore().GetEmulatedController(Core::HID::NpadIdType::Player1);
+    if (!emulated_controller_p1) {
+        return;
+    }
+
+    // Check if Player 1 is already configured with an SDL/gamepad device
+    const auto mapped_devices = emulated_controller_p1->GetMappedDevices();
+    bool has_gamepad = false;
+    for (const auto& dev : mapped_devices) {
+        if (dev.Get("engine", "") == "sdl") {
+            has_gamepad = true;
+            break;
+        }
+    }
+    if (has_gamepad) {
+        return;
+    }
+
+    // Scan available input devices for an SDL gamepad (e.g. Xbox 360 controller on ROG Ally)
+    const auto devices = input_subsystem->GetInputDevices();
+    const auto it = std::find_if(devices.begin(), devices.end(), [](const Common::ParamPackage& dev) {
+        return dev.Get("engine", "") == "sdl";
+    });
+    if (it == devices.end()) {
+        return;
+    }
+
+    const auto& device = *it;
+    LOG_INFO(Frontend, "Auto-binding Player 1 and Handheld to gamepad device '{}'",
+             device.Get("display", "Unknown"));
+
+    auto button_mappings = input_subsystem->GetButtonMappingForDevice(device);
+    auto analog_mappings = input_subsystem->GetAnalogMappingForDevice(device);
+    auto motion_mappings = input_subsystem->GetMotionMappingForDevice(device);
+
+    auto* emulated_controller_handheld =
+        QtCommon::system->HIDCore().GetEmulatedController(Core::HID::NpadIdType::Handheld);
+
+    for (auto* controller : {emulated_controller_p1, emulated_controller_handheld}) {
+        if (!controller) {
+            continue;
+        }
+        for (const auto& [index, param] : button_mappings) {
+            controller->SetButtonParam(index, param);
+        }
+        for (const auto& [index, param] : analog_mappings) {
+            controller->SetStickParam(index, param);
+        }
+        for (const auto& [index, param] : motion_mappings) {
+            controller->SetMotionParam(index, param);
+        }
+        controller->DisableConfiguration();
+        controller->SaveCurrentConfig();
+        controller->EnableConfiguration();
+    }
+
+    OnSaveConfig();
 }
 
 void MainWindow::ConnectMenuEvents() {

@@ -583,7 +583,7 @@ struct Values {
     // BC3 by default: GPUs without ASTC otherwise keep ASTC textures as RGBA8, four times the
     // VRAM (Mario Kart World: 7.3-7.8 GB of an 8 GB card, the rest paged into system RAM).
     SwitchableSetting<AstcRecompression, true> astc_recompression{linkage,
-                                                                  AstcRecompression::Bc3,
+                                                                  AstcRecompression::Uncompressed,
                                                                   "astc_recompression",
                                                                   Category::RendererAdvanced};
 

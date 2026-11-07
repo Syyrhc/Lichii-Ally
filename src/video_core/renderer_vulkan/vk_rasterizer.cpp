@@ -2516,10 +2516,13 @@ void RasterizerVulkan::FlushWork() {
     static constexpr bool android = false;
 #endif // __ANDROID__
     const bool native = gpu_memory->UsesNativeTiling();
-    // The 128-draw native budget is tuned for MoltenVK; desktop Vulkan takes the legacy 4096 (#161).
+    // AMD pays more per submission; 512 gives +10-15 FPS. MoltenVK takes 128; desktop takes 4096.
     const u32 default_native_budget =
-        (VideoCommon::Nx2Perf::On(VideoCommon::Nx2Perf::Opt::SubmitBudget) && !device.IsMoltenVK()) ? 4096U
-                                                                : SubmissionPolicy::DefaultNativeBudget;
+        device.GetDriverID() == VK_DRIVER_ID_AMD_PROPRIETARY
+            ? SubmissionPolicy::AmdNativeBudget
+            : ((VideoCommon::Nx2Perf::On(VideoCommon::Nx2Perf::Opt::SubmitBudget) && !device.IsMoltenVK())
+                   ? 4096U
+                   : SubmissionPolicy::DefaultNativeBudget);
     u32 budget = default_native_budget;
     if (native && !android) {
         static const std::optional<u32> configured_budget = []() -> std::optional<u32> {

@@ -1919,10 +1919,13 @@ void Device::CollectPhysicalMemoryInfo() {
         // 16 GB APUs stay at 4-6 GiB so system memory does not page-thrash.
         const bool aggressive =
             Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Aggressive;
-        const u64 memory_size = host_ram >= 22_GiB ? (aggressive ? 8_GiB : 7_GiB)
-                                                   : (aggressive ? 6_GiB : 4_GiB);
+        const bool is_24gb_handheld = (host_ram >= 21_GiB) || (host_ram + local_memory >= 21_GiB) ||
+                                      (available_memory >= 21_GiB);
+        const u64 memory_size = is_24gb_handheld ? (aggressive ? 8_GiB : 7_GiB)
+                                                 : (aggressive ? 6_GiB : 4_GiB);
+        const s64 min_system_reserve = is_24gb_handheld ? 4_GiB : 8_GiB;
         device_access_memory = static_cast<u64>(
-            std::max<s64>(std::min<s64>(available_memory - 8_GiB, static_cast<s64>(memory_size)),
+            std::max<s64>(std::min<s64>(available_memory - min_system_reserve, static_cast<s64>(memory_size)),
                           std::min<s64>(local_memory, static_cast<s64>(memory_size))));
         LOG_INFO(Render_Vulkan,
                  "Integrated GPU memory budget: {} MiB (host RAM: {} MiB, local heap: {} MiB)",

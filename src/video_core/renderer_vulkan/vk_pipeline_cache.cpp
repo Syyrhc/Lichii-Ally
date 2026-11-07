@@ -1679,11 +1679,11 @@ void PipelineCache::EvictUnusedPipelines() {
         return value != nullptr ? static_cast<size_t>(std::strtoull(value, nullptr, 10))
                                 : size_t{0};
     }();
+    const bool is_24gb_handheld =
+        (Common::GetMemInfo().TotalPhysicalMemory >= (21ULL << 30)) ||
+        (Common::GetMemInfo().TotalPhysicalMemory + device.GetDeviceLocalMemory() >= (21ULL << 30));
     const size_t default_evict =
-        !device.IsIntegrated()
-            ? size_t{8000}
-            : (Common::GetMemInfo().TotalPhysicalMemory >= (22ULL << 30) ? size_t{6000}
-                                                                         : size_t{3500});
+        !device.IsIntegrated() ? size_t{8000} : (is_24gb_handheld ? size_t{6000} : size_t{3500});
     const size_t evict_above = env_evict_above != 0 ? env_evict_above : default_evict;
     if (graphics_cache.size() <= evict_above) {
         return;
