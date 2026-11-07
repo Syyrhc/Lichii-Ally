@@ -395,6 +395,7 @@ struct DeferredStages {
 };
 
 size_t GetTotalPipelineWorkers(const Device& device) {
+    (void)device;
     if (const char* const env = std::getenv("EDEN_NX2_PIPELINE_WORKERS")) {
         const size_t override_count = static_cast<size_t>(std::strtoull(env, nullptr, 10));
         if (override_count > 0) {
@@ -404,7 +405,6 @@ size_t GetTotalPipelineWorkers(const Device& device) {
     const size_t max_core_threads =
         std::max<size_t>(static_cast<size_t>(std::thread::hardware_concurrency()), 2ULL) - 1ULL;
 #ifdef __ANDROID__
-    (void)device;
     const int configured = AndroidSettings::values.pipeline_worker_count.GetValue();
     const int clamped = std::clamp(configured, 2, 8);
     const size_t desired = static_cast<size_t>(clamped);
@@ -413,11 +413,6 @@ size_t GetTotalPipelineWorkers(const Device& device) {
     }
     return std::min(max_core_threads, desired);
 #else
-    if (device.IsIntegrated()) {
-        // Handheld APUs share a 15-35 W package budget between CPU cores and the iGPU; capping
-        // async shader workers prevents 15+ threads from starving GPU clocks or host RAM.
-        return std::clamp<size_t>(max_core_threads / 2ULL, 2ULL, 6ULL);
-    }
     return max_core_threads;
 #endif
 }

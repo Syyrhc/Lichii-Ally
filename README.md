@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Lichii-Ally/Lichii-Ally/releases/latest"><strong>Download Latest Release</strong></a>
+  <a href="https://github.com/Syyrhc/Lichii-Ally/releases/latest"><strong>Download Latest Release</strong></a>
 </p>
 
 ---
@@ -28,7 +28,7 @@ Combining the zero-setup usability of **Frizti v3** with upstream stability and 
 
 ## Downloads and Handheld Compatibility
 
-Download the archive matching your processor architecture from the [Releases page](https://github.com/Lichii-Ally/Lichii-Ally/releases/latest), extract `Lichii-Ally`, and run `lichii.exe`:
+Download the archive matching your processor architecture from the [Releases page](https://github.com/Syyrhc/Lichii-Ally/releases/latest), extract `Lichii-Ally`, and run `lichii.exe`:
 
 | Handheld / Target Hardware | Processor Architecture | RAM | Recommended Package | Compiler Target |
 |---|---|---|---|---|

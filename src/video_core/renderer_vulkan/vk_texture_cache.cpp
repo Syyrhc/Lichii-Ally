@@ -1210,11 +1210,7 @@ void UseBc3ForSwitch2OnSmallCards(const Device& device) {
     const u64 budget = device.GetDeviceMemoryBudget();
     const u64 memory = budget != 0 ? budget : device.GetDeviceLocalMemory();
     const char* keep = std::getenv("EDEN_NX2_KEEP_ASTC");
-    const bool is_24gb_handheld =
-        device.IsIntegrated() &&
-        ((Common::GetMemInfo().TotalPhysicalMemory >= (21ULL << 30)) ||
-         (device.GetDeviceLocalMemory() + Common::GetMemInfo().TotalPhysicalMemory >= (21ULL << 30)));
-    if (memory >= 20_GiB || is_24gb_handheld || (keep != nullptr && keep[0] == '1')) {
+    if (memory >= 20_GiB || (keep != nullptr && keep[0] == '1')) {
         return;
     }
     LOG_WARNING(Render_Vulkan,

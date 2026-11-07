@@ -1914,18 +1914,15 @@ void Device::CollectPhysicalMemoryInfo() {
     if (is_integrated) {
         const u64 host_ram = Common::GetMemInfo().TotalPhysicalMemory;
         const s64 available_memory = static_cast<s64>(device_access_memory - device_initial_usage);
-        // 24 GB handheld APUs (e.g. ROG Xbox Ally X / ROG Ally X with 8 GB VRAM carveout) have
-        // enough physical memory for a 7-8 GiB GPU budget while keeping 8 GB guest DRAM headroom;
-        // 16 GB APUs stay at 4-6 GiB so system memory does not page-thrash.
-        const bool aggressive =
-            Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Aggressive;
-        const bool is_24gb_handheld = (host_ram >= 21_GiB) || (host_ram + local_memory >= 21_GiB) ||
-                                      (available_memory >= static_cast<s64>(21_GiB));
-        const u64 memory_size = is_24gb_handheld ? (aggressive ? 8_GiB : 7_GiB)
-                                                 : (aggressive ? 6_GiB : 4_GiB);
-        const s64 min_system_reserve = is_24gb_handheld ? 4_GiB : 8_GiB;
+        // Keep integrated GPU memory strictly below 7 GiB (4 GiB Conservative, 6 GiB Aggressive)
+        // so SparseLayersCap (384 MiB) and TrimmedAstcArrayLimit (256 MiB) stay within handheld
+        // UMA BIOS carveouts (e.g. 6 GB on ROG Xbox Ally X) without spilling into host RAM.
+        const u64 memory_size =
+            Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Aggressive
+                ? 6_GiB
+                : 4_GiB;
         device_access_memory = static_cast<u64>(
-            std::max<s64>(std::min<s64>(available_memory - min_system_reserve, static_cast<s64>(memory_size)),
+            std::max<s64>(std::min<s64>(available_memory - 8_GiB, static_cast<s64>(memory_size)),
                           std::min<s64>(local_memory, static_cast<s64>(memory_size))));
         LOG_INFO(Render_Vulkan,
                  "Integrated GPU memory budget: {} MiB (host RAM: {} MiB, local heap: {} MiB)",

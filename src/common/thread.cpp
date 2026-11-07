@@ -546,125 +546,83 @@ void SetCurrentThreadName(const char* name) {
 #ifdef _WIN32
 namespace {
 
-struct WindowsCoreInfo {
-    KAFFINITY mask{};
-    BYTE efficiency_class{};
+// Hybrid CPUs (e.g. Ryzen AI Z2 Extreme Zen 5 + Zen 5c, or Intel P/E cores): keep time-critical
+// threads on the fastest cores using Windows CPU sets (a soft affinity respected by the OS power
+// manager and Thread Director without hard-locking threads or starving cores).
+struct WindowsCpuSets {
+    std::vector<ULONG> performance;
+    std::vector<ULONG> efficiency;
+    bool hybrid = false;
 };
 
-struct WindowsCpuTopology {
-    std::vector<WindowsCoreInfo> cores;
-    KAFFINITY all_mask{};
-    KAFFINITY perf_mask{};
-    KAFFINITY eff_mask{};
-    KAFFINITY gpu_front_mask{};
-    KAFFINITY gpu_back_mask{};
-    KAFFINITY background_mask{};
-    bool is_hybrid{};
-};
-
-const WindowsCpuTopology& GetWindowsCpuTopology() {
-    static const WindowsCpuTopology topology = [] {
-        WindowsCpuTopology result;
-        DWORD length = 0;
-        GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
+const WindowsCpuSets& CpuSets() {
+    static const WindowsCpuSets sets = [] {
+        WindowsCpuSets result;
+        if (const char* text = std::getenv("EDEN_HYBRID_CORES");
+            text != nullptr && std::strtol(text, nullptr, 10) == 0) {
+            LOG_INFO(Common, "Hybrid core placement off (EDEN_HYBRID_CORES=0)");
+            return result;
+        }
+        using PFN_GetSystemCpuSetInformation =
+            BOOL(WINAPI*)(PSYSTEM_CPU_SET_INFORMATION, ULONG, PULONG, HANDLE, ULONG);
+        const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+        const auto get = reinterpret_cast<PFN_GetSystemCpuSetInformation>(
+            reinterpret_cast<void*>(GetProcAddress(kernel32, "GetSystemCpuSetInformation")));
+        if (get == nullptr) {
+            return result;
+        }
+        ULONG length = 0;
+        get(nullptr, 0, &length, GetCurrentProcess(), 0);
         if (length == 0) {
             return result;
         }
         std::vector<u8> buffer(length);
-        auto* info = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data());
-        if (!GetLogicalProcessorInformationEx(RelationProcessorCore, info, &length)) {
+        if (!get(reinterpret_cast<PSYSTEM_CPU_SET_INFORMATION>(buffer.data()), length, &length,
+                 GetCurrentProcess(), 0)) {
             return result;
         }
-        BYTE min_eff = 255;
-        BYTE max_eff = 0;
-        for (DWORD offset = 0; offset < length;) {
-            auto* entry =
-                reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() + offset);
-            if (entry->Processor.GroupCount > 0 && entry->Processor.GroupMask[0].Group == 0) {
-                const KAFFINITY mask = entry->Processor.GroupMask[0].Mask;
-                const BYTE eff = entry->Processor.EfficiencyClass;
-                result.cores.push_back({mask, eff});
-                result.all_mask |= mask;
-                min_eff = (std::min)(min_eff, eff);
-                max_eff = (std::max)(max_eff, eff);
+        struct Entry {
+            ULONG id;
+            u8 efficiency_class;
+        };
+        std::vector<Entry> entries;
+        u8 best = 0;
+        for (ULONG offset = 0; offset + sizeof(SYSTEM_CPU_SET_INFORMATION) <= length;) {
+            const auto* info =
+                reinterpret_cast<const SYSTEM_CPU_SET_INFORMATION*>(buffer.data() + offset);
+            if (info->Size == 0) {
+                break;
             }
-            offset += entry->Size;
-        }
-        if (result.cores.empty()) {
-            return result;
-        }
-        result.is_hybrid = min_eff < max_eff;
-        std::vector<KAFFINITY> perf_cores;
-        std::vector<KAFFINITY> eff_cores;
-        for (const auto& core : result.cores) {
-            if (!result.is_hybrid || core.efficiency_class == max_eff) {
-                result.perf_mask |= core.mask;
-                perf_cores.push_back(core.mask);
-            } else {
-                result.eff_mask |= core.mask;
-                eff_cores.push_back(core.mask);
+            if (info->Type == CpuSetInformation) {
+                entries.push_back({info->CpuSet.Id, info->CpuSet.EfficiencyClass});
+                best = (std::max)(best, static_cast<u8>(info->CpuSet.EfficiencyClass));
             }
+            offset += info->Size;
         }
-
-        const char* const setting = std::getenv("EDEN_NX2_PIN_THREADS");
-        if (setting != nullptr && setting[0] == '0') {
-            result.background_mask = result.is_hybrid ? result.eff_mask : result.all_mask;
-            return result;
+        for (const Entry& entry : entries) {
+            (entry.efficiency_class == best ? result.performance : result.efficiency)
+                .push_back(entry.id);
         }
-        const size_t min_cores = (setting != nullptr && setting[0] == '1') ? 4U : 6U;
-        if (result.cores.size() >= min_cores) {
-            const bool alt_hybrid = setting != nullptr && setting[0] == '2';
-            if (result.is_hybrid && perf_cores.size() >= 3 && !eff_cores.empty()) {
-                // Hybrid APU such as AMD Ryzen AI Z2 Extreme (ROG Xbox Ally X: 3x Zen 5 + 5x Zen 5c):
-                // Keep Core P[0] + Zen 5c cores for guest CPU threads, dedicate P[2] to GpuBack,
-                // and dedicate P[1] (or E[0] when EDEN_NX2_PIN_THREADS=2) to GpuFront.
-                result.gpu_back_mask = perf_cores[2];
-                result.gpu_front_mask = alt_hybrid ? eff_cores[0] : perf_cores[1];
-            } else if (result.is_hybrid && perf_cores.size() == 2 && eff_cores.size() >= 2) {
-                result.gpu_back_mask = perf_cores[1];
-                result.gpu_front_mask = eff_cores[0];
-            } else {
-                // Homogeneous 6+ core CPU (e.g. Ryzen Z1 Extreme / 7800X3D): Core 0 takes OS
-                // interrupts; GpuFront and GpuBack get Cores 1 and 2.
-                result.gpu_front_mask = result.cores[1].mask;
-                result.gpu_back_mask = result.cores[2].mask;
-            }
+        result.hybrid = !result.efficiency.empty() && result.performance.size() >= 2;
+        if (result.hybrid) {
+            LOG_INFO(Common,
+                     "Hybrid CPU: {} performance and {} efficiency logical processors, "
+                     "time-critical threads prefer performance cores",
+                     result.performance.size(), result.efficiency.size());
         }
-
-        const KAFFINITY reserved_gpu = result.gpu_front_mask | result.gpu_back_mask;
-        if (result.is_hybrid && (result.eff_mask & ~reserved_gpu) != 0) {
-            // Isolate background shader workers onto Zen 5c / E-cores so they never steal boost
-            // clocks or L2 cache from Zen 5 performance cores or the GPU threads.
-            result.background_mask = result.eff_mask & ~reserved_gpu;
-        } else if ((result.all_mask & ~reserved_gpu) != 0) {
-            KAFFINITY bg = result.all_mask & ~reserved_gpu;
-            if (result.cores.size() >= 6 && (bg & ~result.cores[0].mask) != 0) {
-                bg &= ~result.cores[0].mask;
-            }
-            result.background_mask = bg;
-        } else {
-            result.background_mask = result.all_mask;
-        }
-        LOG_INFO(Common,
-                 "CPU topology: {} physical cores (hybrid={}), gpu_front={:#x}, gpu_back={:#x}, "
-                 "background={:#x}",
-                 result.cores.size(), result.is_hybrid, result.gpu_front_mask,
-                 result.gpu_back_mask, result.background_mask);
         return result;
     }();
-    return topology;
+    return sets;
 }
 
-void SetWindowsPowerThrottling(bool eco_qos) {
-#ifdef THREAD_POWER_THROTTLING_CURRENT_VERSION
-    THREAD_POWER_THROTTLING_STATE state{};
-    state.Version = THREAD_POWER_THROTTLING_CURRENT_VERSION;
-    state.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
-    state.StateMask = eco_qos ? THREAD_POWER_THROTTLING_EXECUTION_SPEED : 0;
-    SetThreadInformation(GetCurrentThread(), ThreadPowerThrottling, &state, sizeof(state));
-#else
-    (void)eco_qos;
-#endif
+void SelectCurrentThreadCpuSets(const std::vector<ULONG>& ids) {
+    using PFN_SetThreadSelectedCpuSets = BOOL(WINAPI*)(HANDLE, const ULONG*, ULONG);
+    static const auto set = reinterpret_cast<PFN_SetThreadSelectedCpuSets>(reinterpret_cast<void*>(
+        GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "SetThreadSelectedCpuSets")));
+    if (set == nullptr) {
+        return;
+    }
+    set(GetCurrentThread(), ids.empty() ? nullptr : ids.data(), static_cast<ULONG>(ids.size()));
 }
 
 } // Anonymous namespace
@@ -678,26 +636,73 @@ void SetCurrentThreadToPerformanceCores() {
     }
     SetCurrentThreadCoreGroup(CoreGroup::Performance);
 #elif defined(_WIN32)
-    SetWindowsPowerThrottling(false);
+    if (const WindowsCpuSets& sets = CpuSets(); sets.hybrid) {
+        SelectCurrentThreadCpuSets(sets.performance);
+    }
 #endif
 }
 
 void PinCurrentThread(PinnedRole role) {
 #ifdef _WIN32
-    const auto& topo = GetWindowsCpuTopology();
-    if (topo.gpu_front_mask == 0 || topo.gpu_back_mask == 0) {
+    // Off with EDEN_NX2_PIN_THREADS=0. Only active when the CPU has at least 6 physical
+    // performance cores (e.g. Ryzen Z1 Extreme 8x Zen 4 or 7800X3D): on hybrid CPUs with fewer
+    // than 6 performance cores (e.g. Ryzen AI Z2 Extreme with 3x Zen 5 + 5x Zen 5c), reserving 2
+    // performance cores exclusively for GpuFront/GpuBack leaves only 1 performance core for all 4
+    // Switch 2 guest CPU threads.
+    static const char* const setting = std::getenv("EDEN_NX2_PIN_THREADS");
+    if (setting != nullptr && setting[0] == '0') {
         return;
     }
+    static const std::vector<KAFFINITY> perf_cores = [] {
+        std::vector<KAFFINITY> result;
+        DWORD length = 0;
+        GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
+        if (length == 0) {
+            return result;
+        }
+        std::vector<u8> buffer(length);
+        auto* info = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data());
+        if (!GetLogicalProcessorInformationEx(RelationProcessorCore, info, &length)) {
+            return result;
+        }
+        BYTE max_eff = 0;
+        for (DWORD offset = 0; offset < length;) {
+            auto* entry =
+                reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() + offset);
+            if (entry->Processor.GroupCount > 0 && entry->Processor.GroupMask[0].Group == 0) {
+                max_eff = (std::max)(max_eff, entry->Processor.EfficiencyClass);
+            }
+            offset += entry->Size;
+        }
+        for (DWORD offset = 0; offset < length;) {
+            auto* entry =
+                reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() + offset);
+            if (entry->Processor.GroupCount > 0 && entry->Processor.GroupMask[0].Group == 0 &&
+                entry->Processor.EfficiencyClass == max_eff) {
+                result.push_back(entry->Processor.GroupMask[0].Mask);
+            }
+            offset += entry->Size;
+        }
+        return result;
+    }();
+    if (perf_cores.size() < (setting != nullptr && setting[0] == '1' ? 4U : 6U)) {
+        return;
+    }
+    const KAFFINITY front = perf_cores[1];
+    const KAFFINITY back = perf_cores[2];
     KAFFINITY mask{};
     switch (role) {
     case PinnedRole::GpuFront:
-        mask = topo.gpu_front_mask;
+        mask = front;
         break;
     case PinnedRole::GpuBack:
-        mask = topo.gpu_back_mask;
+        mask = back;
         break;
     case PinnedRole::GuestCore:
-        mask = topo.all_mask & ~(topo.gpu_front_mask | topo.gpu_back_mask);
+        for (const KAFFINITY core : perf_cores) {
+            mask |= core;
+        }
+        mask &= ~(front | back);
         break;
     }
     if (mask != 0) {
@@ -716,9 +721,8 @@ void SetCurrentThreadToEfficiencyCores() {
     }
     SetCurrentThreadCoreGroup(CoreGroup::Efficiency);
 #elif defined(_WIN32)
-    const auto& topo = GetWindowsCpuTopology();
-    if (topo.background_mask != 0) {
-        SetThreadAffinityMask(GetCurrentThread(), topo.background_mask);
+    if (const WindowsCpuSets& sets = CpuSets(); sets.hybrid) {
+        SelectCurrentThreadCpuSets(sets.efficiency);
     }
 #endif
 }
@@ -728,9 +732,8 @@ void SetCurrentThreadToBackgroundWork() {
     ADPF::AddCurrentThread(ADPF::Session::Background);
     SetCurrentThreadCoreGroup(CoreGroup::Unrestricted);
 #elif defined(_WIN32)
-    const auto& topo = GetWindowsCpuTopology();
-    if (topo.background_mask != 0) {
-        SetThreadAffinityMask(GetCurrentThread(), topo.background_mask);
+    if (const WindowsCpuSets& sets = CpuSets(); sets.hybrid) {
+        SelectCurrentThreadCpuSets({});
     }
 #endif
 }
@@ -740,9 +743,8 @@ void SetCurrentThreadToAllCores() {
     ADPF::RemoveCurrentThread();
     SetCurrentThreadCoreGroup(CoreGroup::Unrestricted);
 #elif defined(_WIN32)
-    const auto& topo = GetWindowsCpuTopology();
-    if (topo.all_mask != 0) {
-        SetThreadAffinityMask(GetCurrentThread(), topo.all_mask);
+    if (const WindowsCpuSets& sets = CpuSets(); sets.hybrid) {
+        SelectCurrentThreadCpuSets({});
     }
 #endif
 }
