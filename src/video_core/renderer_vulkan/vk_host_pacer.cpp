@@ -108,7 +108,7 @@ HostPacer::Clock::time_point HostPacer::Target(Clock::time_point now) {
     // frame) to drop that wait. At 30 fps without it, Ocarina's frames waited ~30 ms each after
     // a few hitches: nearly a frame of extra input lag.
     if (k >= 2 && intended - ToNs(refresh_ns + lead_ns + 1e6) > now) {
-        if (++early_streak >= (k == 2 ? 120U : 30U)) {
+        if (++early_streak >= (k == 2 ? 120U : (k == 3 ? 40U : 30U))) {
             early_streak = 0;
             intended -= ToNs(refresh_ns);
             ++caught_up;

@@ -374,6 +374,10 @@ MainWindow::MainWindow(bool has_broken_vulkan)
 
     Common::FS::CreateEdenPaths();
     this->config = std::make_unique<QtConfig>();
+    if (Settings::values.oot_30fps.GetValue()) {
+        Settings::values.oot_target_fps.SetValue(Settings::OotTargetFps::Target_30);
+        Settings::values.oot_30fps.SetValue(false);
+    }
 
     Common::Log::Filter filter;
     filter.ParseFilterString(Settings::values.log_filter.GetValue());
@@ -573,14 +577,26 @@ void MainWindow::AskOotFrameRate() {
     box.setIcon(QMessageBox::Question);
     box.setText(tr("Which frame rate should Ocarina of Time run at?"));
     box.setInformativeText(
-        tr("60 FPS needs a fast, recent CPU.\n"
-           "30 FPS is for lower-end PCs. The game keeps its normal speed either way.\n\n"
-           "Switch any time with the 60 FPS / 30 FPS button at the bottom of the window."));
-    QPushButton* const fps60 = box.addButton(tr("60 FPS"), QMessageBox::AcceptRole);
-    QPushButton* const fps30 = box.addButton(tr("30 FPS (lower-end PCs)"), QMessageBox::AcceptRole);
-    box.setDefaultButton(fps60);
+        tr("40 FPS is recommended on ROG Xbox Ally X and 120 Hz VRR displays (smooth 25 ms "
+           "frames at 18-25W battery TDP).\n"
+           "60 FPS is best for 30W Turbo / plugged-in play or fast desktop CPUs.\n"
+           "30 FPS maximizes battery life and helps lower-end PCs.\n\n"
+           "The game keeps normal speed in every mode. Switch live any time with the FPS button "
+           "at the bottom, F7, or View + R3 on your controller."));
+    QPushButton* const fps40 =
+        box.addButton(tr("40 FPS (120 Hz VRR Recommended)"), QMessageBox::AcceptRole);
+    QPushButton* const fps60 =
+        box.addButton(tr("60 FPS (30W Turbo / Docked)"), QMessageBox::AcceptRole);
+    QPushButton* const fps30 =
+        box.addButton(tr("30 FPS (Battery Saver)"), QMessageBox::AcceptRole);
+    box.setDefaultButton(fps40);
     box.exec();
-    Settings::values.oot_30fps.SetValue(box.clickedButton() == fps30);
+    const auto* clicked = box.clickedButton();
+    const auto target = (clicked == fps60)   ? Settings::OotTargetFps::Target_60
+                        : (clicked == fps30) ? Settings::OotTargetFps::Target_30
+                                             : Settings::OotTargetFps::Target_40;
+    Settings::values.oot_target_fps.SetValue(target);
+    Settings::values.oot_30fps.SetValue(false);
     Settings::values.oot_fps_asked.SetValue(true);
     UpdateOotFpsButton();
     config->SaveAllValues();
@@ -1248,15 +1264,40 @@ void MainWindow::InitializeWidgets() {
             });
     statusBar()->insertPermanentWidget(0, gpu_accuracy_button);
 
-    // Ocarina of Time frame rate: one click switches 60 / 30 FPS, at once (also in game).
+    // Ocarina of Time frame rate: click (or F7 / View+R3) cycles 40 -> 60 -> 30 FPS live in game.
     oot_fps_button = new QPushButton();
     oot_fps_button->setObjectName(QStringLiteral("OotFpsStatusBarButton"));
     oot_fps_button->setCheckable(true);
     oot_fps_button->setFocusPolicy(Qt::NoFocus);
-    oot_fps_button->setToolTip(tr("Ocarina of Time frame rate. Click to switch between 60 FPS and "
-                                  "30 FPS (lower-end PCs); it takes effect at once."));
+    oot_fps_button->setToolTip(
+        tr("Ocarina of Time frame rate. Click (or press F7 / View+R3) to cycle 40 / 60 / 30 FPS, "
+           "or right-click to choose directly."));
     connect(oot_fps_button, &QPushButton::clicked, this, &MainWindow::OnToggleOotFrameRate);
     UpdateOotFpsButton();
+    oot_fps_button->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(oot_fps_button, &QPushButton::customContextMenuRequested,
+            [this](const QPoint& menu_location) {
+                QMenu context_menu;
+                const auto add_fps_option = [&](const QString& label,
+                                                Settings::OotTargetFps mode) {
+                    QAction* action = context_menu.addAction(label, [this, mode] {
+                        Settings::values.oot_target_fps.SetValue(mode);
+                        Settings::values.oot_30fps.SetValue(false);
+                        Settings::values.oot_fps_asked.SetValue(true);
+                        UpdateOotFpsButton();
+                        config->SaveAllValues();
+                    });
+                    action->setCheckable(true);
+                    action->setChecked(Settings::values.oot_target_fps.GetValue() == mode);
+                };
+                add_fps_option(tr("30 FPS (Battery Saver)"), Settings::OotTargetFps::Target_30);
+                add_fps_option(tr("40 FPS (120 Hz VRR Recommended)"),
+                               Settings::OotTargetFps::Target_40);
+                add_fps_option(tr("60 FPS (30W Turbo / Docked)"),
+                               Settings::OotTargetFps::Target_60);
+                context_menu.exec(oot_fps_button->mapToGlobal(menu_location));
+                oot_fps_button->repaint();
+            });
     statusBar()->insertPermanentWidget(0, oot_fps_button);
 
     // Setup Renderer API button
@@ -1404,6 +1445,7 @@ void MainWindow::InitializeHotkeys() {
     connect_shortcut(QStringLiteral("Change Adapting Filter"), &MainWindow::OnToggleAdaptingFilter);
     connect_shortcut(QStringLiteral("Change Docked Mode"), &MainWindow::OnToggleDockedMode);
     connect_shortcut(QStringLiteral("Change GPU Mode"), &MainWindow::OnToggleGpuAccuracy);
+    connect_shortcut(QStringLiteral("Change Target FPS"), &MainWindow::OnToggleOotFrameRate);
     connect_shortcut(QStringLiteral("Audio Mute/Unmute"), &MainWindow::OnMute);
     connect_shortcut(QStringLiteral("Audio Volume Down"), &MainWindow::OnDecreaseVolume);
     connect_shortcut(QStringLiteral("Audio Volume Up"), &MainWindow::OnIncreaseVolume);
@@ -4792,13 +4834,30 @@ void MainWindow::UpdateGPUAccuracyButton() {
 }
 
 void MainWindow::UpdateOotFpsButton() {
-    const bool fps30 = Settings::values.oot_30fps.GetValue();
-    oot_fps_button->setChecked(fps30);
-    oot_fps_button->setText(fps30 ? tr("30 FPS") : tr("60 FPS"));
+    const auto mode = Settings::values.oot_target_fps.GetValue();
+    oot_fps_button->setChecked(mode != Settings::OotTargetFps::Target_60);
+    switch (mode) {
+    case Settings::OotTargetFps::Target_30:
+        oot_fps_button->setText(tr("30 FPS"));
+        return;
+    case Settings::OotTargetFps::Target_40:
+        oot_fps_button->setText(tr("40 FPS"));
+        return;
+    case Settings::OotTargetFps::Target_60:
+        break;
+    }
+    oot_fps_button->setText(tr("60 FPS"));
 }
 
 void MainWindow::OnToggleOotFrameRate() {
-    Settings::values.oot_30fps.SetValue(!Settings::values.oot_30fps.GetValue());
+    const auto current = Settings::values.oot_target_fps.GetValue();
+    const auto next = (current == Settings::OotTargetFps::Target_40)
+                          ? Settings::OotTargetFps::Target_60
+                          : (current == Settings::OotTargetFps::Target_60)
+                                ? Settings::OotTargetFps::Target_30
+                                : Settings::OotTargetFps::Target_40;
+    Settings::values.oot_target_fps.SetValue(next);
+    Settings::values.oot_30fps.SetValue(false);
     Settings::values.oot_fps_asked.SetValue(true);
     UpdateOotFpsButton();
     config->SaveAllValues();

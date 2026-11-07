@@ -612,10 +612,12 @@ struct Values {
     SwitchableSetting<bool> use_video_framerate{linkage, false, "use_video_framerate",
                                                 Category::RendererAdvanced};
 
-    // Ocarina of Time: present at 30 fps for lower-end PCs (nx2_gsv.h PaceToVblank). The game's
-    // timing follows real time (Dynamic FPS by Dark), so it keeps full speed. Asked once at the
-    // first launch (oot_fps_asked).
+    // Ocarina of Time: target frame rate (nx2_gsv.h PaceToVblank). 40 FPS locks to every 3rd
+    // refresh on 120 Hz VRR handhelds (ROG Xbox Ally X); 30 FPS saves battery / lower-end PCs;
+    // 60 FPS is full rate. Dynamic FPS by Dark keeps normal game speed in all modes.
     SwitchableSetting<bool> oot_30fps{linkage, false, "oot_30fps", Category::RendererAdvanced};
+    SwitchableSetting<OotTargetFps> oot_target_fps{linkage, OotTargetFps::Target_40,
+                                                   "oot_target_fps", Category::RendererAdvanced};
     Setting<bool> oot_fps_asked{linkage, false, "oot_fps_asked", Category::RendererAdvanced};
 
     // Mario Kart World: select a fixed or dynamic in-game frame-rate mode (loader/nso.cpp).

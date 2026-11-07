@@ -97,7 +97,11 @@ struct Values {
     QByteArray gamelist_header_state;
 
     Setting<bool> single_window_mode{linkage, true, "singleWindowMode", Category::Ui};
+#ifdef _WIN32
+    Setting<bool> fullscreen{linkage, true, "fullscreen", Category::Ui};
+#else
     Setting<bool> fullscreen{linkage, false, "fullscreen", Category::Ui};
+#endif
     Setting<bool> show_filter_bar{linkage, true, "showFilterBar", Category::Ui};
     Setting<bool> show_status_bar{linkage, true, "showStatusBar", Category::Ui};
 
@@ -247,7 +251,7 @@ void SaveWindowState();
 void RestoreWindowState(std::unique_ptr<QtConfig>& qtConfig);
 
 // sync with uisettings.cpp
-extern const std::array<Shortcut, 32> default_hotkeys;
+extern const std::array<Shortcut, 33> default_hotkeys;
 
 } // namespace UISettings
 

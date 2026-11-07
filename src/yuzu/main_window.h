@@ -375,7 +375,7 @@ private slots:
     void OnMenuInstallToNAND();
     void OnMenuRecentFile();
     void OnConfigure();
-    /// Asks whether Ocarina of Time runs at 60 or 30 FPS (Settings::values.oot_30fps).
+    /// Asks whether Ocarina of Time runs at 40, 60, or 30 FPS (Settings::values.oot_target_fps).
     void AskOotFrameRate();
     void OnConfigureTas();
     void OnDecreaseVolume();
