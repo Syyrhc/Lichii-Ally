@@ -1653,18 +1653,18 @@ void MainWindow::AutoBindFirstControllerIfDefault() {
         if (!controller) {
             continue;
         }
+        controller->EnableConfiguration();
         for (const auto& [index, param] : button_mappings) {
-            controller->SetButtonParam(index, param);
+            controller->SetButtonParam(static_cast<std::size_t>(index), param);
         }
         for (const auto& [index, param] : analog_mappings) {
-            controller->SetStickParam(index, param);
+            controller->SetStickParam(static_cast<std::size_t>(index), param);
         }
         for (const auto& [index, param] : motion_mappings) {
-            controller->SetMotionParam(index, param);
+            controller->SetMotionParam(static_cast<std::size_t>(index), param);
         }
         controller->DisableConfiguration();
         controller->SaveCurrentConfig();
-        controller->EnableConfiguration();
     }
 
     OnSaveConfig();

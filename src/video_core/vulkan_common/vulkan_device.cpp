@@ -1920,7 +1920,7 @@ void Device::CollectPhysicalMemoryInfo() {
         const bool aggressive =
             Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Aggressive;
         const bool is_24gb_handheld = (host_ram >= 21_GiB) || (host_ram + local_memory >= 21_GiB) ||
-                                      (available_memory >= 21_GiB);
+                                      (available_memory >= static_cast<s64>(21_GiB));
         const u64 memory_size = is_24gb_handheld ? (aggressive ? 8_GiB : 7_GiB)
                                                  : (aggressive ? 6_GiB : 4_GiB);
         const s64 min_system_reserve = is_24gb_handheld ? 4_GiB : 8_GiB;
