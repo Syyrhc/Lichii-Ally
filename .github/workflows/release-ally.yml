@@ -241,26 +241,28 @@ jobs:
 
           windeployqt --release --no-translations build/release/bin/lichii.exe
 
-          New-Item -ItemType Directory -Force -Path stage/Lichii-Ally, stage/symbols, out | Out-Null
-          Copy-Item -Path build/release/bin/* -Destination stage/Lichii-Ally -Recurse -Force
+          $pkgFolder = "Lichii Ally $env:VERSION_LABEL"
+          $stageDir = "stage/$pkgFolder"
+          New-Item -ItemType Directory -Force -Path $stageDir, stage/symbols, out | Out-Null
+          Copy-Item -Path build/release/bin/* -Destination $stageDir -Recurse -Force
 
-          Get-ChildItem -Path stage/Lichii-Ally -Filter '*.pdb' -Recurse | ForEach-Object {
+          Get-ChildItem -Path $stageDir -Filter '*.pdb' -Recurse | ForEach-Object {
             Move-Item -Path $_.FullName -Destination stage/symbols -Force
           }
 
           Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' `
-            -OutFile 'stage/Lichii-Ally/vc_redist.x64.exe'
+            -OutFile "$stageDir/vc_redist.x64.exe"
 
           $mainZip = "out/Lichii-Ally-$env:VERSION_LABEL-$env:VARIANT.zip"
           $pdbZip  = "out/Lichii-Ally-$env:VERSION_LABEL-$env:VARIANT-debug-symbols-not-needed-to-play.zip"
 
           if (Get-Command 7z -ErrorAction SilentlyContinue) {
-            7z a -tzip -mx=7 $mainZip ./stage/Lichii-Ally | Out-Null
+            7z a -tzip -mx=7 $mainZip "./$stageDir" | Out-Null
             if ((Get-ChildItem stage/symbols).Count -gt 0) {
               7z a -tzip -mx=7 $pdbZip ./stage/symbols/* | Out-Null
             }
           } else {
-            Compress-Archive -Path stage/Lichii-Ally -DestinationPath $mainZip -CompressionLevel Optimal
+            Compress-Archive -Path $stageDir -DestinationPath $mainZip -CompressionLevel Optimal
             if ((Get-ChildItem stage/symbols).Count -gt 0) {
               Compress-Archive -Path stage/symbols/* -DestinationPath $pdbZip -CompressionLevel Optimal
             }
@@ -312,7 +314,7 @@ jobs:
           ---
 
           ### Quick Start
-          1. Download the archive matching your processor architecture above (**${avx512_zip}** for AMD Zen 4 / Zen 5 handhelds, or **${avx2_zip}** for Intel Core Ultra, AMD Zen 2 / Zen 3+, and non-AVX-512 systems), extract **\`Lichii-Ally\`**, and launch **\`lichii.exe\`**. *(If Windows prompts for Visual C++ runtime libraries, run \`vc_redist.x64.exe\` included in the folder.)*
+          1. Download the archive matching your processor architecture above (**${avx512_zip}** for AMD Zen 4 / Zen 5 handhelds, or **${avx2_zip}** for Intel Core Ultra, AMD Zen 2 / Zen 3+, and non-AVX-512 systems), extract **\`Lichii Ally ${VERSION_LABEL}\`**, and launch **\`lichii.exe\`**. *(If Windows prompts for Visual C++ runtime libraries, run \`vc_redist.x64.exe\` included in the folder.)*
           2. Install your legally dumped keys and firmware, then add your games directory.
           3. All handheld optimizations — \`clang-cl\` 22 ThinLTO + PGO, Windows 11 hybrid CPU thread scheduling, dynamic unified memory scaling (\`16 GB\` vs. \`24 GB+\` APUs), capped async shader workers (6 threads), automatic DLSS to AMD FSR 3.1 replacement, Borderless Windowed Fullscreen, and **40 FPS** 120 Hz VRR Genlock — are enabled out of the box.
 
