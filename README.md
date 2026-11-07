@@ -43,24 +43,39 @@ Download the archive matching your processor architecture from the [Releases pag
 
 > **Important:** Processors without `AVX-512` support (Intel Core Ultra on MSI Claw, AMD `Zen 2` on Steam Deck and ROG Xbox Ally Base, and AMD `Zen 3+` on Legion Go S Z2 Go) **must** use the `Universal-AVX2.zip` package. Archives ending in `-debug-symbols-not-needed-to-play.zip` contain `.pdb` debugging symbols for crash analysis only and are not required for gameplay. If Windows prompts for Visual C++ runtime libraries on a clean installation, run `vc_redist.x64.exe` included inside the `Lichii-Ally` directory.
 
+## Handheld Game Performance and Compatibility
+
+Performance verified on real handheld hardware running Windows 11 with **Lichii Ally v2** (`Xbox-Ally-X-AVX512` build, Docked mode, Vulkan backend):
+
+| Game Title | Program ID | Tested Handheld | Processor / GPU / RAM | Verified Frame Rate | Notes |
+|---|---|---|---|---|---|
+| **Pokemon Pokopia** | `0400A3A01EE4C000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **40–60 FPS** | Playable in-game with smooth frame pacing |
+| **The Legend of Zelda: Ocarina of Time** | `0400486024DEC000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **40 FPS** *(cutscenes & interiors)* / **22–35 FPS** *(Kokiri Forest)* | Built-in Dynamic FPS and Max Resolution patches applied automatically |
+
+### Submit Your Handheld Benchmark
+
+Testing on an ASUS ROG Xbox Ally X, ROG Ally (Z1E / X), Lenovo Legion Go, MSI Claw, Steam Deck, or another Windows handheld? Share your in-game FPS results to help expand the compatibility table:
+
+- **[Submit a Handheld FPS Benchmark Report](https://github.com/Syyrhc/Lichii-Ally/issues/new?title=%5BBenchmark%5D+Game+Name+-+Handheld+Model&body=**Handheld+Model%3A**+%0A**Processor+%2F+RAM%3A**+%0A**Lichii+Ally+Package%3A**+Xbox-Ally-X-AVX512+or+Universal-AVX2%0A**Game+Title+%26+Program+ID%3A**+%0A**Average+FPS%3A**+%0A**TDP+%2F+Power+Mode%3A**+%0A**Console+Mode%3A**+Docked+or+Handheld%0A**Notes%3A**+)**
+
 ## Hardware-Specific Optimizations
 
 1. **Windows 11 Hybrid Core Scheduling (`Zen 5 + Zen 5c` and Heterogeneous CPUs):**
-   - Queries processor core `EfficiencyClass` topology via `GetLogicalProcessorInformationEx` and disables Windows *EcoQoS / Power Throttling* on critical emulation threads.
-   - Dedicates full performance cores (such as **Zen 5 up to 5.0 GHz** on Ryzen AI Z2 Extreme / HX 370) to `GpuBack` and `GpuFront`, while isolating background Vulkan shader compilation workers onto efficiency cores (`Zen 5c` / E-cores) to prevent clock drops and frame-time spikes. Automatically adapts on homogeneous 8-core (`Zen 4`) and 4-core (`Zen 2` / `Zen 3+`) handhelds.
-2. **Dynamic Unified Memory Allocation (16 GB vs. 24 GB+ APUs):**
-   - Inspects host physical RAM at startup in `Device::CollectPhysicalMemoryInfo`: scales the Vulkan texture cache budget to **7 GiB** (Conservative) or **8 GiB** (Aggressive) with a **6,000-pipeline** ceiling on 24 GB+ handhelds (ROG Xbox Ally X, ROG Ally X, Legion Go 2, MSI Claw 8 AI+), while automatically maintaining a safe **4–6 GiB** budget and **3,500-pipeline** ceiling on 16 GB handhelds (ROG Ally Z1E, Legion Go 1, Steam Deck) so host memory is never exhausted.
-3. **APU-Calibrated Asynchronous Shader Compilation:**
-   - Caps concurrent Vulkan pipeline compilation workers on integrated GPUs to **6 threads** (down from 15), preventing CPU package power starvation and host RAM spikes on 15–35 W handhelds.
-   - Stores pipeline caches in dedicated `vulkan-ally` files and automatically migrates existing `vulkan-frizti` or mainline `vulkan` caches on first launch.
-4. **120 Hz VRR 40 FPS Mode & Live Frame-Rate Switching:**
-   - Sets the default *The Legend of Zelda: Ocarina of Time* target frame rate to **40 FPS** (`25.0 ms`, preserving full native game speed via built-in Dynamic FPS), locking cleanly to every **3rd display refresh** on 120 Hz FreeSync VRR panels with low-latency phase alignment.
-   - Supports instant in-game switching across **40 FPS**, **60 FPS**, and **30 FPS** via controller shortcut, keyboard hotkey, or the status bar selector.
+   - Queries processor `EfficiencyClass` topology via Windows CPU Sets (`GetSystemCpuSetInformation` and `SetThreadSelectedCpuSets`) so time-critical emulation threads prefer high-clock performance cores (`Zen 5` up to 5.0 GHz on Ryzen AI Z2 Extreme / HX 370) while allowing the OS scheduler to balance all 4 Switch 2 guest CPU threads without core starvation.
+   - Dedicates isolated cores to `GpuFront` and `GpuBack` on processors with 6 or more physical performance cores (such as the 8-core `Zen 4` Ryzen Z1 Extreme).
+2. **UMA-Safe Memory & Texture Cache Management:**
+   - Calibrates the integrated GPU memory budget (`4 GiB` Conservative / `6 GiB` Aggressive) and automatically recompresses Switch 2 ASTC textures to **BC3** (`4x` lower VRAM footprint than uncompressed RGBA8 on GPUs without native ASTC hardware), keeping `SparseLayers` (`384 MiB`) and `TrimmedAstcArray` (`256 MiB`) pools within handheld BIOS UMA carveouts without exhausting Windows host RAM.
+   - Stores pipeline caches in dedicated `vulkan-ally` files (`6,000` pipeline retention ceiling on 24 GB+ handhelds, `3,500` on 16 GB handhelds) and automatically migrates existing `vulkan-frizti` or mainline `vulkan` caches on first launch.
+3. **AMD RDNA 3 / 3.5 Renderer & Shader Optimizations:**
+   - Includes non-blocking AMD occlusion query synchronization (`VK_QUERY_RESULT_WITH_AVAILABILITY_BIT`), `512`-draw command submission batching on AMD proprietary drivers, `16x16x16` `VK_KHR_cooperative_matrix` tensor acceleration (`HMMA`), multithreaded texture unswizzling (`LinePool`), and automatic **DLSS to AMD FSR 3.1** upscaler replacement.
+4. **120 Hz VRR 40 FPS Mode & Automatic Gamepad Binding:**
+   - Sets the default *The Legend of Zelda: Ocarina of Time* target frame rate to **40 FPS** (`25.0 ms`, preserving full native game speed via built-in Dynamic FPS), locking cleanly to every **3rd display refresh** on 120 Hz FreeSync VRR panels.
+   - Automatically detects and binds the built-in handheld controller (`Xbox 360 Controller 0`) to Player 1 and Handheld profiles on first launch.
 5. **Windows 11 Xbox Full Screen Experience Integration:**
    - Launches games directly into **Borderless Windowed Fullscreen** by default on Windows to maintain seamless VRR engagement.
    - Binds default controller hotkeys to `View` and `Menu` stick-click combinations rather than the Xbox Guide button, preventing conflicts with Windows Xbox Game Bar.
 6. **`clang-cl` 22 + ThinLTO + PGO + Upstream `nx2` Fixes:**
-   - Compiled with LLVM 22.1.8, ThinLTO, and Profile-Guided Optimization (`lichii-windows.profdata`), incorporating automatic **DLSS to AMD FSR 3.1** upscaler replacement, Windows `SparseLargeVector` page commit stability (`#485`), expanded Turing macro RAM (`#439`), and clean GPU split teardown (`#438`).
+   - Compiled with LLVM 22.1.8, ThinLTO, and Profile-Guided Optimization (`lichii-windows.profdata`), incorporating Turing macro JIT fallback recovery, bounded 8 ms wait for unbuilt Switch 2 pipelines, and AV1 cutscene audio/video synchronization.
 
 ## Recommended System Configuration (ROG Xbox Ally X)
 
