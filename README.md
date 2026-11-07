@@ -33,12 +33,12 @@ Download the archive matching your processor architecture from the [Releases pag
 | Handheld / Target Hardware | Processor Architecture | RAM | Recommended Package | Compiler Target |
 |---|---|---|---|---|
 | **ASUS ROG Xbox Ally X** | Ryzen AI Z2 Extreme (`Zen 5 + Zen 5c`) | 24 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, `mtune=znver5`, ThinLTO + PGO) |
-| **ASUS ROG Ally X / ROG Ally (Z1E & Z1)** | Ryzen Z1 Extreme / Z1 (`Zen 4`) | 16–24 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, ThinLTO + PGO) |
-| **Lenovo Legion Go / Go 2 / Go S (Z1E)** | Ryzen Z2 Extreme / Z1 Extreme (`Zen 5 / Zen 4`) | 16–32 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, ThinLTO + PGO) |
-| **Ayaneo / GPD / OneXPlayer (HX 370 / 8840U / 7840U)** | Ryzen AI 9 HX 370 / Ryzen 7 8840U (`Zen 5 / Zen 4`) | 16–64 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, ThinLTO + PGO) |
+| **ASUS ROG Ally X / ROG Ally (Z1E & Z1)** | Ryzen Z1 Extreme / Z1 (`Zen 4`) | 16-24 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, ThinLTO + PGO) |
+| **Lenovo Legion Go / Go 2 / Go S (Z1E)** | Ryzen Z2 Extreme / Z1 Extreme (`Zen 5 / Zen 4`) | 16-32 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, ThinLTO + PGO) |
+| **Ayaneo / GPD / OneXPlayer (HX 370 / 8840U / 7840U)** | Ryzen AI 9 HX 370 / Ryzen 7 8840U (`Zen 5 / Zen 4`) | 16-64 GB | `Lichii-Ally-vX-Xbox-Ally-X-AVX512.zip` | `x86-64-v4` (`AVX-512`, ThinLTO + PGO) |
 | **ASUS ROG Xbox Ally (Base)** | Ryzen Z2 A (`Zen 2`, no AVX-512) | 16 GB | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
-| **Lenovo Legion Go S (Z2 Go)** | Ryzen Z2 Go (`Zen 3+`, no AVX-512) | 16–32 GB | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
-| **MSI Claw 8 AI+ / 7 AI+ / A1M** | Intel Core Ultra 200V / 100H (no AVX-512) | 16–32 GB | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
+| **Lenovo Legion Go S (Z2 Go)** | Ryzen Z2 Go (`Zen 3+`, no AVX-512) | 16-32 GB | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
+| **MSI Claw 8 AI+ / 7 AI+ / A1M** | Intel Core Ultra 200V / 100H (no AVX-512) | 16-32 GB | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
 | **Steam Deck LCD / OLED (Windows)** and other x64 PCs | Custom AMD `Zen 2` APU / x86-64 CPUs | 16 GB+ | `Lichii-Ally-vX-Universal-AVX2.zip` | `x86-64-v3` (`AVX2`, ThinLTO + PGO) |
 
 > **Important:** Processors without `AVX-512` support (Intel Core Ultra on MSI Claw, AMD `Zen 2` on Steam Deck and ROG Xbox Ally Base, and AMD `Zen 3+` on Legion Go S Z2 Go) **must** use the `Universal-AVX2.zip` package. Archives ending in `-debug-symbols-not-needed-to-play.zip` contain `.pdb` debugging symbols for crash analysis only and are not required for gameplay. If Windows prompts for Visual C++ runtime libraries on a clean installation, run `vc_redist.x64.exe` included inside the `Lichii-Ally` directory.
@@ -49,8 +49,8 @@ Performance verified on real handheld hardware running Windows 11 with **Lichii 
 
 | Game Title | Program ID | Tested Handheld | Processor / GPU / RAM | Verified Frame Rate | Notes |
 |---|---|---|---|---|---|
-| **Pokemon Pokopia** | `0400A3A01EE4C000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **40–60 FPS** | Playable in-game with smooth frame pacing |
-| **The Legend of Zelda: Ocarina of Time** | `0400486024DEC000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **40 FPS** *(cutscenes & interiors)* / **22–35 FPS** *(Kokiri Forest)* | Built-in Dynamic FPS and Max Resolution patches applied automatically |
+| **Pokemon Pokopia** | `0400A3A01EE4C000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **40-60 FPS** | Playable in-game with smooth frame pacing |
+| **The Legend of Zelda: Ocarina of Time** | `0400486024DEC000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **40 FPS** *(cutscenes & interiors)* / **22-35 FPS** *(Kokiri Forest)* | Built-in Dynamic FPS and Max Resolution patches applied automatically |
 
 ### Submit Your Handheld Benchmark
 
@@ -81,10 +81,10 @@ Testing on an ASUS ROG Xbox Ally X, ROG Ally (Z1E / X), Lenovo Legion Go, MSI Cl
 
 | Component | Recommended Setting | Technical Rationale |
 |---|---|---|
-| **Armoury Crate SE — GPU Memory (VRAM)** | **8 GB** | Balances 8 GB dedicated to the Radeon 890M with 16 GB available for Windows, guest DRAM, and shader caches. |
+| **Armoury Crate SE - GPU Memory (VRAM)** | **8 GB** | Balances 8 GB dedicated to the Radeon 890M with 16 GB available for Windows, guest DRAM, and shader caches. |
 | **Windows Display Settings** | **1080p @ 120 Hz + FreeSync (VRR) Enabled** | Enables exact `120 Hz / 3` Genlock cadence at 40 FPS and absorbs minor frame-time variance. |
 | **AMD Software: Adrenalin Edition** | **Disable Radeon Anti-Lag, Radeon Boost, and AFMF** | Prevents driver-level frame queues from interfering with the emulator's internal low-latency host pacer. |
-| **Operating Mode (TDP)** | **17W–20W** (40 FPS) / **25W–30W** (60 FPS) / **13W–15W** (30 FPS) | Matches APU package power to your selected target frame rate and 80 Wh battery life goal. |
+| **Operating Mode (TDP)** | **17W-20W** (40 FPS) / **25W-30W** (60 FPS) / **13W-15W** (30 FPS) | Matches APU package power to your selected target frame rate and 80 Wh battery life goal. |
 
 ## Controller and Keyboard Shortcuts
 

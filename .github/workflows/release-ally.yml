@@ -307,7 +307,7 @@ jobs:
           avx2_zip="Lichii-Ally-${VERSION_LABEL}-Universal-AVX2.zip"
 
           sed 's/^          //' > notes.md <<EOF
-          ## [Download Lichii Ally ${VERSION_LABEL} — AVX-512 Edition (ROG Xbox Ally X / Ally X / Ally Z1E / Legion Go / HX 370)](${base}/${avx512_zip})
+          ## [Download Lichii Ally ${VERSION_LABEL} - AVX-512 Edition (ROG Xbox Ally X / Ally X / Ally Z1E / Legion Go / HX 370)](${base}/${avx512_zip})
 
           **Universal AVX2 Edition (MSI Claw Intel / Steam Deck Windows / ROG Xbox Ally Base Z2 A / Legion Go S Z2 Go / Other x64 PCs):** [Download ${avx2_zip}](${base}/${avx2_zip})
 
@@ -316,19 +316,19 @@ jobs:
           ### Quick Start
           1. Download the archive matching your processor architecture above (**${avx512_zip}** for AMD Zen 4 / Zen 5 handhelds, or **${avx2_zip}** for Intel Core Ultra, AMD Zen 2 / Zen 3+, and non-AVX-512 systems), extract **\`Lichii Ally ${VERSION_LABEL}\`**, and launch **\`lichii.exe\`**. *(If Windows prompts for Visual C++ runtime libraries, run \`vc_redist.x64.exe\` included in the folder.)*
           2. Install your legally dumped keys and firmware, then add your games directory.
-          3. All handheld optimizations — \`clang-cl\` 22 ThinLTO + PGO, Windows 11 hybrid CPU thread scheduling, dynamic unified memory scaling (\`16 GB\` vs. \`24 GB+\` APUs), capped async shader workers (6 threads), automatic DLSS to AMD FSR 3.1 replacement, Borderless Windowed Fullscreen, and **40 FPS** 120 Hz VRR Genlock — are enabled out of the box.
+          3. All handheld optimizations - \`clang-cl\` 22 ThinLTO + PGO, Windows 11 hybrid CPU thread scheduling, UMA-safe memory and BC3 texture cache management, automatic DLSS to AMD FSR 3.1 replacement, Borderless Windowed Fullscreen, and **40 FPS** 120 Hz VRR Genlock - are enabled out of the box.
 
           ### What's New in v2
-          - **Full AMD Radeon & Handheld Performance Optimization (PR #573 Port)**: 512-draw submission batches on AMD proprietary drivers (+10–15 FPS), multithreaded LinePool texture unswizzler, dynamic texture cache budget scaling, non-blocking query cache sync, and unoptimized compile for Kokiri Forest compute shader.
-          - **Fixed ASTC Texture Corruption and Game Hang**: Reverted default ASTC recompression to Uncompressed and protected 24 GB handhelds, resolving black/discolored textures (Navi, Deku Tree) and freezing during cutscenes.
+          - **Full AMD Radeon & Handheld Performance Optimization (PR #573 Port)**: 512-draw submission batches on AMD proprietary drivers (+10-15 FPS), multithreaded LinePool texture unswizzler, dynamic texture cache budget scaling, non-blocking query cache sync, and unoptimized compile for Kokiri Forest compute shader.
+          - **UMA-Safe Memory & Texture Cache Management**: Calibrated integrated GPU memory budget (4-6 GiB) and automatic BC3 ASTC recompression (4x lower VRAM footprint than RGBA8), preventing host RAM exhaustion during Kokiri Forest streaming.
           - **Automatic Gamepad Binding**: Automatically detects and binds Player 1 and Handheld mode to the built-in Xbox 360 controller on ROG Ally and compatible SDL gamepads on first launch.
-          - **Dynamic Unified RAM Detection**: Identifies 24 GB APUs with BIOS-carved VRAM, allocating 7–8 GiB GPU cache budget and 6,000 pipelines without host RAM starvation.
+          - **Windows CPU Sets Hybrid Scheduling**: Uses soft CPU Set affinity so time-critical threads prefer Zen 5 performance cores without starving the 4 Switch 2 guest CPU threads.
           - **Upstream nx2 Fixes**: Turing macro JIT interpreter fallback (#589), AV1 video audio sync and 3 host threads (#571), 64 storage buffers (#551), cooperative matrices HMMA (#582/#583), float16 for LSFG (#587), dynamic FPS down to 10 FPS (#584).
 
           ### Recommended System Settings (ASUS ROG Xbox Ally X)
           - **Armoury Crate SE VRAM:** **8 GB** (leaves 16 GB free for Windows, JIT, and shader compilation).
           - **Display:** **1080p @ 120 Hz** with **AMD FreeSync Premium (VRR) Enabled** *(disable Radeon Anti-Lag, Radeon Boost, and AFMF in AMD Software)*.
-          - **Operating Mode (TDP):** **17W–20W** for **40 FPS** battery play, **25W–30W** for **60 FPS**, or **13W–15W** for **30 FPS**.
+          - **Operating Mode (TDP):** **17W-20W** for **40 FPS** battery play, **25W-30W** for **60 FPS**, or **13W-15W** for **30 FPS**.
 
           ### Controller Shortcuts (Xbox Full Screen Experience Compatible)
           - **\`View + R3\`** *(or \`F7\` / status bar button)*: Cycle target frame rate live (**40 / 60 / 30 FPS**).
@@ -338,7 +338,7 @@ jobs:
           *(Archives ending in \`-debug-symbols-not-needed-to-play.zip\` contain \`.pdb\` symbols for crash analysis only and are not required for gameplay.)*
           EOF
 
-          title="Lichii Ally ${VERSION_LABEL} — ROG Xbox Ally X & Windows Handhelds"
+          title="Lichii Ally ${VERSION_LABEL} - ROG Xbox Ally X & Windows Handhelds"
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --title "${title}" --notes-file notes.md
             gh release upload "${TAG}" artifacts/*.zip --repo "${GITHUB_REPOSITORY}" --clobber
