@@ -306,33 +306,26 @@ jobs:
           sed 's/^          //' > notes.md <<EOF
           ## [Download Lichii Ally ${VERSION_LABEL} — ASUS ROG Xbox Ally X / Ally X (AVX-512 + PGO)](${base}/${avx512_zip})
 
-          **Edição Universal (ROG Xbox Ally Base Z2 A / Steam Deck Windows / PCs sem AVX-512):** [Download ${avx2_zip}](${base}/${avx2_zip})
+          **Universal Edition (ROG Xbox Ally Base Z2 A / Steam Deck Windows / Non-AVX-512 PCs):** [Download ${avx2_zip}](${base}/${avx2_zip})
 
           ---
 
-          ### Português — Instalação e Uso
-          1. Baixe **${avx512_zip}** acima, extraia a pasta **\`Lichii-Ally\`** e execute **\`lichii.exe\`**. *(Caso o Windows solicite bibliotecas C++, execute o instalador \`vc_redist.x64.exe\` incluído na pasta.)*
-          2. Instale suas chaves (*keys*) e *firmware* do console e adicione o diretório dos seus jogos.
-          3. Todas as otimizações específicas para o **ASUS ROG Xbox Ally X** (escalonamento híbrido Zen 5 + Zen 5c, orçamento de memória para 24 GB RAM, limite de 6 threads assíncronas de shaders, AMD FSR 3.1 automático, Tela Cheia Sem Bordas e alvo de **40 FPS** com Genlock em 120 Hz VRR) já estão habilitadas por padrão.
+          ### Quick Start
+          1. Download **${avx512_zip}** above (recommended for **ASUS ROG Xbox Ally X**, **ROG Ally X**, and **ROG Ally Z1 Extreme**), extract **\`Lichii-Ally\`**, and launch **\`lichii.exe\`**. *(If Windows prompts for Visual C++ runtime libraries, run \`vc_redist.x64.exe\` included in the folder.)*
+          2. Install your legally dumped keys and firmware, then add your games directory.
+          3. All handheld optimizations — \`clang-cl\` 22 ThinLTO + PGO + \`znver5\` AVX-512 codegen, Windows 11 hybrid Zen 5 / Zen 5c thread scheduling, 24 GB unified memory tuning, capped async shader workers (6 threads), automatic DLSS to AMD FSR 3.1 replacement, Borderless Windowed Fullscreen, and **40 FPS** 120 Hz VRR Genlock — are enabled out of the box.
 
-          #### Configurações Recomendadas no Armoury Crate SE (ROG Xbox Ally X)
-          - **VRAM:** **8 GB** (preserva 16 GB livres para o Windows, JIT e compilação de shaders).
-          - **Tela:** **1080p @ 120 Hz** com **AMD FreeSync Premium (VRR) Ativado** *(desative Radeon Anti-Lag, Radeon Boost e AFMF no AMD Software)*.
-          - **Perfil de Energia (TDP):** **17W–20W** para **40 FPS** na bateria, **25W–30W** para **60 FPS**, ou **13W–15W** para **30 FPS**.
+          ### Recommended System Settings (ASUS ROG Xbox Ally X)
+          - **Armoury Crate SE VRAM:** **8 GB** (leaves 16 GB free for Windows, JIT, and shader compilation).
+          - **Display:** **1080p @ 120 Hz** with **AMD FreeSync Premium (VRR) Enabled** *(disable Radeon Anti-Lag, Radeon Boost, and AFMF in AMD Software)*.
+          - **Operating Mode (TDP):** **17W–20W** for **40 FPS** battery play, **25W–30W** for **60 FPS**, or **13W–15W** for **30 FPS**.
 
-          #### Atalhos de Controle (compatíveis com Xbox Full Screen Experience)
-          - **\`View + R3\`** *(ou \`F7\` / botão na barra inferior)*: Alterna em tempo real entre **40 FPS, 60 FPS e 30 FPS**.
-          - **\`View + L3\`** *(ou \`F11\`)*: Alterna Tela Cheia Sem Bordas.
-          - **\`Menu + R3\`** *(ou \`Ctrl + V\`)*: Exibe ou oculta o Overlay de Desempenho.
+          ### Controller Shortcuts (Xbox Full Screen Experience Compatible)
+          - **\`View + R3\`** *(or \`F7\` / status bar button)*: Cycle target frame rate live (**40 / 60 / 30 FPS**).
+          - **\`View + L3\`** *(or \`F11\`)*: Toggle Borderless Fullscreen.
+          - **\`Menu + R3\`** *(or \`Ctrl + V\`)*: Toggle Performance Overlay.
 
-          ---
-
-          ### English — Quick Start
-          1. Download **${avx512_zip}** above (recommended for **ASUS ROG Xbox Ally X**, **ROG Ally X**, and **ROG Ally Z1 Extreme**), extract **\`Lichii-Ally\`**, and run **\`lichii.exe\`**. *(For the base **ROG Xbox Ally** with Ryzen Z2 A or non-AVX-512 systems, use **${avx2_zip}**.)*
-          2. Install your legally dumped keys and firmware, then select your games directory. All handheld optimizations (\`clang-cl\` 22 ThinLTO + PGO + \`znver5\` AVX-512, Windows 11 Zen 5 / Zen 5c core scheduling, 24 GB APU memory tuning, capped async shader workers, automatic DLSS to AMD FSR 3.1 replacement, Borderless Fullscreen, and **40 FPS** 120 Hz VRR Genlock) are enabled out of the box.
-          3. Switch target frame rate live in-game anytime with **\`View + R3\`**, **\`F7\`**, or the status bar selector (**40 / 60 / 30 FPS**).
-
-          *(Files ending in \`-debug-symbols-not-needed-to-play.zip\` contain \`.pdb\` symbols for crash analysis only and are not required to play.)*
+          *(Archives ending in \`-debug-symbols-not-needed-to-play.zip\` contain \`.pdb\` symbols for crash analysis only and are not required for gameplay.)*
           EOF
 
           title="Lichii Ally ${VERSION_LABEL} — ROG Xbox Ally X Edition"
