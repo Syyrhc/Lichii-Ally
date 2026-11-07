@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ChrysthianChrisley/Lichii-Ally/releases/latest"><strong>Download Latest Release</strong></a>
+  <a href="https://github.com/Lichii-Ally/Lichii-Ally/releases/latest"><strong>Download Latest Release</strong></a>
 </p>
 
 ---
@@ -28,7 +28,7 @@ Combining the zero-setup usability of **Frizti v3** with upstream stability and 
 
 ## Downloads and Handheld Compatibility
 
-Download the archive matching your processor architecture from the [Releases page](https://github.com/ChrysthianChrisley/Lichii-Ally/releases/latest), extract `Lichii-Ally`, and run `lichii.exe`:
+Download the archive matching your processor architecture from the [Releases page](https://github.com/Lichii-Ally/Lichii-Ally/releases/latest), extract `Lichii-Ally`, and run `lichii.exe`:
 
 | Handheld / Target Hardware | Processor Architecture | RAM | Recommended Package | Compiler Target |
 |---|---|---|---|---|
@@ -99,7 +99,6 @@ cmake --build build --target yuzu yuzu-cmd --parallel
 ## Credits and License
 
 Lichii Ally builds upon the open-source work of:
-- **[Lichii Ally](https://github.com/ChrysthianChrisley/Lichii-Ally)** maintained and optimized for Windows handhelds by **Chrys (ChrysthianChrisley)**
 - **[Lichii](https://github.com/zortos293/Lichii)** by Zortos and contributors
 - **[Frizti's Lichii Builds](https://github.com/Frizti/Lichii)** (zero-setup Ocarina of Time workflow, Dynamic FPS integration with **Dark**, and shader workarounds with **Evil**)
 - **[Eglantine](https://github.com/Djihads80/Eglantine)** (Camille LaVey), **Eden**, **yuzu**, and **Sudachi**

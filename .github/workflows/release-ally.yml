@@ -316,7 +316,7 @@ jobs:
           2. Install your legally dumped keys and firmware, then add your games directory.
           3. All handheld optimizations — \`clang-cl\` 22 ThinLTO + PGO, Windows 11 hybrid CPU thread scheduling, dynamic unified memory scaling (\`16 GB\` vs. \`24 GB+\` APUs), capped async shader workers (6 threads), automatic DLSS to AMD FSR 3.1 replacement, Borderless Windowed Fullscreen, and **40 FPS** 120 Hz VRR Genlock — are enabled out of the box.
 
-          ### What's New in v2 (by Chrys)
+          ### What's New in v2
           - **Full AMD Radeon & Handheld Performance Optimization (PR #573 Port)**: 512-draw submission batches on AMD proprietary drivers (+10–15 FPS), multithreaded LinePool texture unswizzler, dynamic texture cache budget scaling, non-blocking query cache sync, and unoptimized compile for Kokiri Forest compute shader.
           - **Fixed ASTC Texture Corruption and Game Hang**: Reverted default ASTC recompression to Uncompressed and protected 24 GB handhelds, resolving black/discolored textures (Navi, Deku Tree) and freezing during cutscenes.
           - **Automatic Gamepad Binding**: Automatically detects and binds Player 1 and Handheld mode to the built-in Xbox 360 controller on ROG Ally and compatible SDL gamepads on first launch.
