@@ -23,6 +23,7 @@
 #include <cstring>
 #include <numeric>
 #include "common/cityhash.h"
+#include "common/memory_detect.h"
 #include "common/scope_exit.h"
 #include "common/fs/fs.h"
 #include "common/fs/path_util.h"
@@ -391,10 +392,17 @@ struct DeferredStages {
     std::array<std::vector<u32>, Maxwell::MaxShaderStage> reference_spirv;
 };
 
-size_t GetTotalPipelineWorkers() {
+size_t GetTotalPipelineWorkers(const Device& device) {
+    if (const char* const env = std::getenv("EDEN_NX2_PIPELINE_WORKERS")) {
+        const size_t override_count = static_cast<size_t>(std::strtoull(env, nullptr, 10));
+        if (override_count > 0) {
+            return override_count;
+        }
+    }
     const size_t max_core_threads =
         std::max<size_t>(static_cast<size_t>(std::thread::hardware_concurrency()), 2ULL) - 1ULL;
 #ifdef __ANDROID__
+    (void)device;
     const int configured = AndroidSettings::values.pipeline_worker_count.GetValue();
     const int clamped = std::clamp(configured, 2, 8);
     const size_t desired = static_cast<size_t>(clamped);
@@ -403,6 +411,11 @@ size_t GetTotalPipelineWorkers() {
     }
     return std::min(max_core_threads, desired);
 #else
+    if (device.IsIntegrated()) {
+        // Handheld APUs share a 15-35 W package budget between CPU cores and the iGPU; capping
+        // async shader workers prevents 15+ threads from starving GPU clocks or host RAM.
+        return std::clamp<size_t>(max_core_threads / 2ULL, 2ULL, 6ULL);
+    }
     return max_core_threads;
 #endif
 }
@@ -467,8 +480,9 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
           const char* value = std::getenv("EDEN_NX2_OOT_VISUAL_WORKAROUND");
           return value != nullptr && std::string_view{value} == "1";
       }()},
-      num_pipeline_workers{device.HasBrokenParallelShaderCompiling() ? 1ULL
-                                                                   : GetTotalPipelineWorkers()},
+      num_pipeline_workers{device.HasBrokenParallelShaderCompiling()
+                               ? 1ULL
+                               : GetTotalPipelineWorkers(device_)},
       emission_budget{num_pipeline_workers},
       workers(num_pipeline_workers,
               "VkPipelineBuilder", {}, Common::ThreadPlacement::Background),
@@ -1148,24 +1162,32 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         LOG_ERROR(Common_Filesystem, "Failed to create pipeline cache directories");
         return;
     }
-    // This fork's files: its records carry task/mesh state other builds of the same cache version
-    // cannot read, and their loader deletes a file it fails to read. The shared files of earlier
-    // builds are copied once.
+    // Lichii Ally keeps its pipeline cache in dedicated files so switching between builds never
+    // wipes cached task/mesh pipelines; existing Frizti or mainline caches are migrated once.
     pipeline_cache_filename =
-        VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan-frizti", CACHE_VERSION);
+        VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan-ally", CACHE_VERSION);
     used_pipelines_filename =
-        VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_used-frizti", CACHE_VERSION);
-    for (const auto& [shared, own] :
-         {std::pair{VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan", CACHE_VERSION),
-                    pipeline_cache_filename},
-          std::pair{VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_used", CACHE_VERSION),
-                    used_pipelines_filename}}) {
+        VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_used-ally", CACHE_VERSION);
+    for (const char* const source_prefix : {"vulkan-frizti", "vulkan"}) {
         std::error_code error;
-        if (!std::filesystem::exists(own, error) && std::filesystem::exists(shared, error)) {
-            std::filesystem::copy_file(shared, own, error);
+        const auto src_cache =
+            VideoCommon::VersionedPipelineCachePath(base_dir, source_prefix, CACHE_VERSION);
+        if (!std::filesystem::exists(pipeline_cache_filename, error) &&
+            std::filesystem::exists(src_cache, error)) {
+            std::filesystem::copy_file(src_cache, pipeline_cache_filename, error);
             LOG_INFO(Render_Vulkan, "Copied pipeline cache {} to {}{}",
-                     Common::FS::PathToUTF8String(shared), Common::FS::PathToUTF8String(own),
+                     Common::FS::PathToUTF8String(src_cache),
+                     Common::FS::PathToUTF8String(pipeline_cache_filename),
                      error ? fmt::format(" (failed: {})", error.message()) : std::string{});
+        }
+    }
+    for (const char* const used_prefix : {"vulkan_used-frizti", "vulkan_used"}) {
+        std::error_code error;
+        const auto src_used =
+            VideoCommon::VersionedPipelineCachePath(base_dir, used_prefix, CACHE_VERSION);
+        if (!std::filesystem::exists(used_pipelines_filename, error) &&
+            std::filesystem::exists(src_used, error)) {
+            std::filesystem::copy_file(src_used, used_pipelines_filename, error);
         }
     }
     // zortos293/Lichii builds from #194 on (cache version 53) write the same records as this
@@ -1525,14 +1547,19 @@ void PipelineCache::EvictUnusedPipelines() {
         return;
     }
     // Only while the cache is large: each one evicted is translated again on the GPU thread when
-    // its place is revisited (~10 ms). Ocarina of Time kept ~1,900 of them and evicted 3,400 in
-    // 25 minutes of play, then rebuilt 1,850 (14 s of stalls, 3.8 s in one 10 s window). 8,000
-    // pipelines are ~3.6 GB of driver memory at most. EDEN_NX2_PIPELINE_EVICT_ABOVE sets it.
-    static const size_t evict_above = [] {
+    // its place is revisited (~10 ms). Desktop dGPUs keep 8,000 (~3.6 GB); 24 GB+ handheld APUs
+    // (ROG Xbox Ally X) keep 6,000 (~2.7 GB); 16 GB APUs keep 3,500 (~1.5 GB).
+    static const size_t env_evict_above = [] {
         const char* value = std::getenv("EDEN_NX2_PIPELINE_EVICT_ABOVE");
         return value != nullptr ? static_cast<size_t>(std::strtoull(value, nullptr, 10))
-                                : size_t{8000};
+                                : size_t{0};
     }();
+    const size_t default_evict =
+        !device.IsIntegrated()
+            ? size_t{8000}
+            : (Common::GetMemInfo().TotalPhysicalMemory >= (22ULL << 30) ? size_t{6000}
+                                                                         : size_t{3500});
+    const size_t evict_above = env_evict_above != 0 ? env_evict_above : default_evict;
     if (graphics_cache.size() <= evict_above) {
         return;
     }
