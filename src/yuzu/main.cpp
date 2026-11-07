@@ -137,8 +137,8 @@ static std::filesystem::path GetSwitchExeDirectory(const char* argv0) {
 #endif
 }
 
-// Built into the Frizti builds so players don't have to set anything: the switches tuned for
-// Ocarina of Time. Either nx2_switches.txt overrides any of them (=0 turns one off).
+// Built into Lichii Ally builds so players don't have to set anything: the switches tuned for
+// Ocarina of Time and Switch 2 gameplay. Either nx2_switches.txt overrides any of them (=0 turns one off).
 constexpr std::pair<const char*, const char*> BuiltinSwitches[] = {
     {"EDEN_NX2_GRAPHICS_SSBO_BARE", "0"}, {"EDEN_NX2_WRITTEN_SSBO_MARK_KIB", "64"},
     {"EDEN_NX2_ACQUIRE_PRECHECK", "2"},   {"EDEN_NX2_MACRO_SINK", "1"},

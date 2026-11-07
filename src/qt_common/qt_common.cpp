@@ -235,8 +235,9 @@ void Init(QWidget* root) {
     const auto description = std::string(Common::g_scm_desc);
     const auto build_id = std::string(Common::g_build_id);
 
+    const std::string_view build_ver{Common::g_build_version};
     const auto yuzu_build =
-        std::string_view{Common::g_build_version}.starts_with("Frizti v")
+        (build_ver.starts_with("Ally v") || build_ver.starts_with("Frizti v"))
             ? fmt::format("Lichii {} | {}-{}", Common::g_build_version, branch_name, description)
             : fmt::format("Lichii Development Build | {}-{}", branch_name, description);
     const auto override_build =
