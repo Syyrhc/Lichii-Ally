@@ -2,9 +2,9 @@ name: build-check
 
 on:
   pull_request:
-    branches: [nx2]
+    branches: [main, nx2, lichii-ally]
   push:
-    branches: [nx2]
+    branches: [main, nx2, lichii-ally]
   workflow_dispatch:
 
 permissions:

@@ -14,11 +14,11 @@ endfunction()
 
 get_timestamp(BUILD_DATE)
 
-# Frizti fork releases are numbered Frizti v1, v2, ...: dist/frizti_version.txt holds the number.
-set(FRIZTI_VERSION_FILE "${CMAKE_SOURCE_DIR}/dist/frizti_version.txt")
-if (EXISTS "${FRIZTI_VERSION_FILE}")
-    file(STRINGS "${FRIZTI_VERSION_FILE}" FRIZTI_VERSION LIMIT_COUNT 1 REGEX "^[0-9]+$")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${FRIZTI_VERSION_FILE}")
+# Lichii Ally fork releases are numbered Ally v1, v2, ...: dist/ally_version.txt holds the number.
+set(ALLY_VERSION_FILE "${CMAKE_SOURCE_DIR}/dist/ally_version.txt")
+if (EXISTS "${ALLY_VERSION_FILE}")
+    file(STRINGS "${ALLY_VERSION_FILE}" ALLY_VERSION LIMIT_COUNT 1 REGEX "^[0-9]+$")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ALLY_VERSION_FILE}")
     # The log names the commit: reconfigure when HEAD moves (commit, checkout, merge, revert).
     if (EXISTS "${CMAKE_SOURCE_DIR}/.git/logs/HEAD")
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/.git/logs/HEAD")
@@ -28,8 +28,8 @@ endif()
 if (LICHII_BUILD_TAG MATCHES "^build-[0-9]+$")
     set(BUILD_VERSION "${LICHII_BUILD_TAG}")
     set(IS_DEV_BUILD false)
-elseif (FRIZTI_VERSION)
-    set(BUILD_VERSION "Frizti v${FRIZTI_VERSION}")
+elseif (ALLY_VERSION)
+    set(BUILD_VERSION "Ally v${ALLY_VERSION}")
     set(IS_DEV_BUILD false)
 elseif (DEFINED GIT_RELEASE)
     set(BUILD_VERSION "${GIT_TAG}")
@@ -47,8 +47,8 @@ else()
     set(IS_NIGHTLY_BUILD false)
 endif()
 
-if (FRIZTI_VERSION AND NOT LICHII_BUILD_TAG MATCHES "^build-[0-9]+$")
-    # Logs keep the commit: "Lichii Frizti vN | <branch>-<commit>".
+if (ALLY_VERSION AND NOT LICHII_BUILD_TAG MATCHES "^build-[0-9]+$")
+    # Logs keep the commit: "Lichii Ally vN | <branch>-<commit>".
     string(SUBSTRING ${GIT_COMMIT} 0 10 GIT_DESC)
 else()
     set(GIT_DESC ${BUILD_VERSION})
