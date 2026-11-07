@@ -24,6 +24,7 @@
 #include "common/fs/fs.h"
 #include "common/fs/path_util.h"
 #include "common/literals.h"
+#include "common/memory_detect.h"
 #include <ranges>
 #include "common/settings.h"
 #include "common/settings_enums.h"
@@ -1844,9 +1845,21 @@ void Device::CollectPhysicalMemoryInfo() {
         device_access_memory += heap_size;
     }
     if (is_integrated) {
+        const u64 host_ram = Common::GetMemInfo().TotalPhysicalMemory;
         const s64 available_memory = static_cast<s64>(device_access_memory - device_initial_usage);
-        const u64 memory_size = Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Aggressive ? 6_GiB : 4_GiB;
-        device_access_memory = static_cast<u64>(std::max<s64>(std::min<s64>(available_memory - 8_GiB, memory_size), std::min<s64>(local_memory, memory_size)));
+        // 24 GB handheld APUs (e.g. ROG Xbox Ally X / ROG Ally X with 8 GB VRAM carveout) have
+        // enough physical memory for a 7-8 GiB GPU budget while keeping 8 GB guest DRAM headroom;
+        // 16 GB APUs stay at 4-6 GiB so system memory does not page-thrash.
+        const bool aggressive =
+            Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Aggressive;
+        const u64 memory_size = host_ram >= 22_GiB ? (aggressive ? 8_GiB : 7_GiB)
+                                                   : (aggressive ? 6_GiB : 4_GiB);
+        device_access_memory = static_cast<u64>(
+            std::max<s64>(std::min<s64>(available_memory - 8_GiB, static_cast<s64>(memory_size)),
+                          std::min<s64>(local_memory, static_cast<s64>(memory_size))));
+        LOG_INFO(Render_Vulkan,
+                 "Integrated GPU memory budget: {} MiB (host RAM: {} MiB, local heap: {} MiB)",
+                 device_access_memory >> 20, host_ram >> 20, local_memory >> 20);
     } else {
         const u64 reserve_memory = std::min<u64>(device_access_memory / 8, 1_GiB);
         device_access_memory -= reserve_memory;

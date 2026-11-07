@@ -5,9 +5,11 @@
 // SPDX-FileCopyrightText: 2014 Citra Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <chrono>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "common/adpf.h"
 #include "common/error.h"
@@ -541,6 +543,133 @@ void SetCurrentThreadName(const char* name) {
 #endif
 }
 
+#ifdef _WIN32
+namespace {
+
+struct WindowsCoreInfo {
+    KAFFINITY mask{};
+    BYTE efficiency_class{};
+};
+
+struct WindowsCpuTopology {
+    std::vector<WindowsCoreInfo> cores;
+    KAFFINITY all_mask{};
+    KAFFINITY perf_mask{};
+    KAFFINITY eff_mask{};
+    KAFFINITY gpu_front_mask{};
+    KAFFINITY gpu_back_mask{};
+    KAFFINITY background_mask{};
+    bool is_hybrid{};
+};
+
+const WindowsCpuTopology& GetWindowsCpuTopology() {
+    static const WindowsCpuTopology topology = [] {
+        WindowsCpuTopology result;
+        DWORD length = 0;
+        GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
+        if (length == 0) {
+            return result;
+        }
+        std::vector<u8> buffer(length);
+        auto* info = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data());
+        if (!GetLogicalProcessorInformationEx(RelationProcessorCore, info, &length)) {
+            return result;
+        }
+        BYTE min_eff = 255;
+        BYTE max_eff = 0;
+        for (DWORD offset = 0; offset < length;) {
+            auto* entry =
+                reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() + offset);
+            if (entry->Processor.GroupCount > 0 && entry->Processor.GroupMask[0].Group == 0) {
+                const KAFFINITY mask = entry->Processor.GroupMask[0].Mask;
+                const BYTE eff = entry->Processor.EfficiencyClass;
+                result.cores.push_back({mask, eff});
+                result.all_mask |= mask;
+                min_eff = (std::min)(min_eff, eff);
+                max_eff = (std::max)(max_eff, eff);
+            }
+            offset += entry->Size;
+        }
+        if (result.cores.empty()) {
+            return result;
+        }
+        result.is_hybrid = min_eff < max_eff;
+        std::vector<KAFFINITY> perf_cores;
+        std::vector<KAFFINITY> eff_cores;
+        for (const auto& core : result.cores) {
+            if (!result.is_hybrid || core.efficiency_class == max_eff) {
+                result.perf_mask |= core.mask;
+                perf_cores.push_back(core.mask);
+            } else {
+                result.eff_mask |= core.mask;
+                eff_cores.push_back(core.mask);
+            }
+        }
+
+        const char* const setting = std::getenv("EDEN_NX2_PIN_THREADS");
+        if (setting != nullptr && setting[0] == '0') {
+            result.background_mask = result.is_hybrid ? result.eff_mask : result.all_mask;
+            return result;
+        }
+        const size_t min_cores = (setting != nullptr && setting[0] == '1') ? 4U : 6U;
+        if (result.cores.size() >= min_cores) {
+            const bool alt_hybrid = setting != nullptr && setting[0] == '2';
+            if (result.is_hybrid && perf_cores.size() >= 3 && !eff_cores.empty()) {
+                // Hybrid APU such as AMD Ryzen AI Z2 Extreme (ROG Xbox Ally X: 3x Zen 5 + 5x Zen 5c):
+                // Keep Core P[0] + Zen 5c cores for guest CPU threads, dedicate P[2] to GpuBack,
+                // and dedicate P[1] (or E[0] when EDEN_NX2_PIN_THREADS=2) to GpuFront.
+                result.gpu_back_mask = perf_cores[2];
+                result.gpu_front_mask = alt_hybrid ? eff_cores[0] : perf_cores[1];
+            } else if (result.is_hybrid && perf_cores.size() == 2 && eff_cores.size() >= 2) {
+                result.gpu_back_mask = perf_cores[1];
+                result.gpu_front_mask = eff_cores[0];
+            } else {
+                // Homogeneous 6+ core CPU (e.g. Ryzen Z1 Extreme / 7800X3D): Core 0 takes OS
+                // interrupts; GpuFront and GpuBack get Cores 1 and 2.
+                result.gpu_front_mask = result.cores[1].mask;
+                result.gpu_back_mask = result.cores[2].mask;
+            }
+        }
+
+        const KAFFINITY reserved_gpu = result.gpu_front_mask | result.gpu_back_mask;
+        if (result.is_hybrid && (result.eff_mask & ~reserved_gpu) != 0) {
+            // Isolate background shader workers onto Zen 5c / E-cores so they never steal boost
+            // clocks or L2 cache from Zen 5 performance cores or the GPU threads.
+            result.background_mask = result.eff_mask & ~reserved_gpu;
+        } else if ((result.all_mask & ~reserved_gpu) != 0) {
+            KAFFINITY bg = result.all_mask & ~reserved_gpu;
+            if (result.cores.size() >= 6 && (bg & ~result.cores[0].mask) != 0) {
+                bg &= ~result.cores[0].mask;
+            }
+            result.background_mask = bg;
+        } else {
+            result.background_mask = result.all_mask;
+        }
+        LOG_INFO(Common,
+                 "CPU topology: {} physical cores (hybrid={}), gpu_front={:#x}, gpu_back={:#x}, "
+                 "background={:#x}",
+                 result.cores.size(), result.is_hybrid, result.gpu_front_mask,
+                 result.gpu_back_mask, result.background_mask);
+        return result;
+    }();
+    return topology;
+}
+
+void SetWindowsPowerThrottling(bool eco_qos) {
+#ifdef THREAD_POWER_THROTTLING_CURRENT_VERSION
+    THREAD_POWER_THROTTLING_STATE state{};
+    state.Version = THREAD_POWER_THROTTLING_CURRENT_VERSION;
+    state.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+    state.StateMask = eco_qos ? THREAD_POWER_THROTTLING_EXECUTION_SPEED : 0;
+    SetThreadInformation(GetCurrentThread(), ThreadPowerThrottling, &state, sizeof(state));
+#else
+    (void)eco_qos;
+#endif
+}
+
+} // Anonymous namespace
+#endif
+
 void SetCurrentThreadToPerformanceCores() {
 #if defined(__ANDROID__)
     if (ADPF::AddCurrentThread(ADPF::Session::Render)) {
@@ -548,62 +677,34 @@ void SetCurrentThreadToPerformanceCores() {
         return;
     }
     SetCurrentThreadCoreGroup(CoreGroup::Performance);
+#elif defined(_WIN32)
+    SetWindowsPowerThrottling(false);
 #endif
 }
 
 void PinCurrentThread(PinnedRole role) {
 #ifdef _WIN32
-    // Off with EDEN_NX2_PIN_THREADS=0. On by default with 6 or more physical cores: the split's
-    // back did about 8% more draws a second at Lake Hylia (Ryzen 7 7800X3D), its worst window
-    // 29 -> 54 fps, once no SMT sibling shared its core.
-    static const char* const setting = std::getenv("EDEN_NX2_PIN_THREADS");
-    if (setting != nullptr && setting[0] == '0') {
+    const auto& topo = GetWindowsCpuTopology();
+    if (topo.gpu_front_mask == 0 || topo.gpu_back_mask == 0) {
         return;
     }
-    // Physical cores of processor group 0, as masks of their logical processors.
-    static const std::vector<KAFFINITY> cores = [] {
-        std::vector<KAFFINITY> result;
-        DWORD length = 0;
-        GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
-        std::vector<u8> buffer(length);
-        auto* info = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data());
-        if (!GetLogicalProcessorInformationEx(RelationProcessorCore, info, &length)) {
-            return result;
-        }
-        for (DWORD offset = 0; offset < length;) {
-            auto* entry =
-                reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() + offset);
-            if (entry->Processor.GroupCount > 0 && entry->Processor.GroupMask[0].Group == 0) {
-                result.push_back(entry->Processor.GroupMask[0].Mask);
-            }
-            offset += entry->Size;
-        }
-        return result;
-    }();
-    // Core 0 takes most interrupts: the GPU threads get cores 1 and 2.
-    if (cores.size() < (setting != nullptr && setting[0] == '1' ? 4U : 6U)) {
-        return;
-    }
-    const KAFFINITY front = cores[1];
-    const KAFFINITY back = cores[2];
     KAFFINITY mask{};
     switch (role) {
     case PinnedRole::GpuFront:
-        mask = front;
+        mask = topo.gpu_front_mask;
         break;
     case PinnedRole::GpuBack:
-        mask = back;
+        mask = topo.gpu_back_mask;
         break;
     case PinnedRole::GuestCore:
-        for (const KAFFINITY core : cores) {
-            mask |= core;
-        }
-        mask &= ~(front | back);
+        mask = topo.all_mask & ~(topo.gpu_front_mask | topo.gpu_back_mask);
         break;
     }
     if (mask != 0) {
         SetThreadAffinityMask(GetCurrentThread(), mask);
     }
+#else
+    (void)role;
 #endif
 }
 
@@ -614,6 +715,11 @@ void SetCurrentThreadToEfficiencyCores() {
         return;
     }
     SetCurrentThreadCoreGroup(CoreGroup::Efficiency);
+#elif defined(_WIN32)
+    const auto& topo = GetWindowsCpuTopology();
+    if (topo.background_mask != 0) {
+        SetThreadAffinityMask(GetCurrentThread(), topo.background_mask);
+    }
 #endif
 }
 
@@ -621,6 +727,11 @@ void SetCurrentThreadToBackgroundWork() {
 #if defined(__ANDROID__)
     ADPF::AddCurrentThread(ADPF::Session::Background);
     SetCurrentThreadCoreGroup(CoreGroup::Unrestricted);
+#elif defined(_WIN32)
+    const auto& topo = GetWindowsCpuTopology();
+    if (topo.background_mask != 0) {
+        SetThreadAffinityMask(GetCurrentThread(), topo.background_mask);
+    }
 #endif
 }
 
@@ -628,6 +739,11 @@ void SetCurrentThreadToAllCores() {
 #if defined(__ANDROID__)
     ADPF::RemoveCurrentThread();
     SetCurrentThreadCoreGroup(CoreGroup::Unrestricted);
+#elif defined(_WIN32)
+    const auto& topo = GetWindowsCpuTopology();
+    if (topo.all_mask != 0) {
+        SetThreadAffinityMask(GetCurrentThread(), topo.all_mask);
+    }
 #endif
 }
 

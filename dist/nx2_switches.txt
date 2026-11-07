@@ -14,6 +14,15 @@ EDEN_NX2_SPLIT=2
 # Batch GPU fence syncpoints to reduce host driver overhead and smooth frametimes.
 EDEN_NX2_FENCE_BATCH=1
 
+# --- ROG Xbox Ally X / Handheld CPU & Shader Tuning (Lichii Ally) ---
+# Hybrid Zen 5 + Zen 5c thread pinning is enabled automatically on 6+ core CPUs (GpuBack on P[2],
+# GpuFront on P[1], background shader workers isolated onto Zen 5c efficiency cores).
+# Set =2 to move GpuFront onto Zen 5c E[0] (freeing 2 full Zen 5 cores for guest CPU), or =0 to disable.
+#EDEN_NX2_PIN_THREADS=2
+
+# Async Vulkan pipeline compilation workers (auto-capped to 6 on APUs to prevent TDP/RAM spikes).
+#EDEN_NX2_PIPELINE_WORKERS=6
+
 # Leave buffer downloads disabled on Switch 2 (default): forcing downloads (=1) copies back
 # 90-220 MB/s of buffers CPU never touches, causing heavy mutex contention and dropping FPS by ~38-63%.
 #EDEN_NX2_BUFFER_DOWNLOADS=1
