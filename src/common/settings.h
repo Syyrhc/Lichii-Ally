@@ -804,9 +804,9 @@ struct Values {
 
     Setting<s32> current_user{linkage, 0, "current_user", Category::System};
 
-    // Docked: the docked rendering resolution (as Ocarina of Time on a TV).
+    // Handheld by default on Lichii Ally to avoid 1440p/4K docked render targets on portable APUs.
     SwitchableSetting<ConsoleMode> use_docked_mode{linkage,
-                                                   ConsoleMode::Docked,
+                                                   ConsoleMode::Handheld,
                                                    "use_docked_mode",
                                                    Category::System,
                                                    Specialization::Radio,

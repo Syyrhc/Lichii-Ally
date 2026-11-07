@@ -1616,24 +1616,24 @@ void MainWindow::AutoBindFirstControllerIfDefault() {
         return;
     }
 
-    // Check if Player 1 is already configured with an SDL/gamepad device
+    // Check if Player 1 is already configured exclusively with an SDL gamepad device
+    // (no leftover keyboard bindings that would cause Input Device to show Any/Keyboard Only)
     const auto mapped_devices = emulated_controller_p1->GetMappedDevices();
-    bool has_gamepad = false;
-    for (const auto& dev : mapped_devices) {
-        if (dev.Get("engine", "") == "sdl") {
-            has_gamepad = true;
-            break;
-        }
-    }
-    if (has_gamepad) {
+    if (mapped_devices.size() == 1 && mapped_devices[0].Get("engine", "") == "sdl") {
         return;
     }
 
-    // Scan available input devices for an SDL gamepad (e.g. Xbox 360 controller on ROG Ally)
+    // Scan available input devices for an SDL gamepad, preferring Xbox controllers (e.g. Xbox 360 Controller 0)
     const auto devices = input_subsystem->GetInputDevices();
-    const auto it = std::find_if(devices.begin(), devices.end(), [](const Common::ParamPackage& dev) {
-        return dev.Get("engine", "") == "sdl";
+    auto it = std::find_if(devices.begin(), devices.end(), [](const Common::ParamPackage& dev) {
+        return dev.Get("engine", "") == "sdl" &&
+               dev.Get("display", "").find("Xbox") != std::string::npos;
     });
+    if (it == devices.end()) {
+        it = std::find_if(devices.begin(), devices.end(), [](const Common::ParamPackage& dev) {
+            return dev.Get("engine", "") == "sdl";
+        });
+    }
     if (it == devices.end()) {
         return;
     }
@@ -1654,6 +1654,15 @@ void MainWindow::AutoBindFirstControllerIfDefault() {
             continue;
         }
         controller->EnableConfiguration();
+        for (std::size_t button_id = 0; button_id < Settings::NativeButton::NumButtons; ++button_id) {
+            controller->SetButtonParam(button_id, {});
+        }
+        for (std::size_t analog_id = 0; analog_id < Settings::NativeAnalog::NumAnalogs; ++analog_id) {
+            controller->SetStickParam(analog_id, {});
+        }
+        for (std::size_t motion_id = 0; motion_id < Settings::NativeMotion::NumMotions; ++motion_id) {
+            controller->SetMotionParam(motion_id, {});
+        }
         for (const auto& [index, param] : button_mappings) {
             controller->SetButtonParam(static_cast<std::size_t>(index), param);
         }
@@ -2084,6 +2093,7 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
     if (boot_in_progress || close_pending) {
         return;
     }
+    AutoBindFirstControllerIfDefault();
     boot_in_progress = true;
     game_list->SetScanEnabled(false);
     QElapsedTimer boot_timer;
@@ -3755,6 +3765,7 @@ void MainWindow::OnConfigure() {
 #endif
 
     Settings::SetConfiguringGlobal(true);
+    AutoBindFirstControllerIfDefault();
     ConfigureDialog configure_dialog(this, hotkey_registry, input_subsystem.get(),
                                      vk_device_records, *QtCommon::system,
                                      !multiplayer_state->IsHostingPublicRoom());

@@ -880,6 +880,7 @@ void ConfigureInputPlayer::LoadConfiguration() {
     emulated_controller->ReloadFromSettings();
 
     UpdateUI();
+    ui->comboDevices->setCurrentIndex(-1);
     UpdateInputDeviceCombobox();
 
     if (debug) {
