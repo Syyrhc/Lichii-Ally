@@ -288,9 +288,10 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
     INSERT(Settings, use_video_framerate, tr("Sync to framerate of video playback"),
            tr("Run the game at normal speed during video playback, even when the framerate is "
               "unlocked."));
-    INSERT(Settings, oot_30fps, tr("Ocarina of Time: 30 FPS mode (lower-end PCs)"),
-           tr("Caps Ocarina of Time at 30 FPS. The game keeps its normal speed. Takes effect at "
-              "once; the 60 FPS / 30 FPS button in the status bar switches it too."));
+    INSERT(Settings, oot_target_fps, tr("Ocarina of Time: target frame rate"),
+           tr("Target frame rate for Ocarina of Time. 40 FPS locks to every 3rd refresh on "
+              "120 Hz VRR displays (ROG Xbox Ally X sweet spot). Takes effect at once; the "
+              "status bar button or F7 / View+R3 switches it too."));
     INSERT(Settings, mkw_30fps, tr("Mario Kart World: 30 FPS mode"),
            tr("Forces the game to use its native 30 FPS mode at normal game speed. "
               "Takes effect after restarting the game."));
@@ -513,6 +514,12 @@ std::unique_ptr<ComboboxTranslationMap> ComboboxEnumeration(QObject* parent) {
                           {
                               PAIR(FrameGenType, Lsfg, tr("Lossless Scaling (LSFG)")),
                               PAIR(FrameGenType, Fsr3, tr("Optical Flow Interpolation (built-in)")),
+                          }});
+    translations->insert({Settings::EnumMetadata<Settings::OotTargetFps>::Index(),
+                          {
+                              PAIR(OotTargetFps, Target_30, tr("30 FPS (Battery Saver)")),
+                              PAIR(OotTargetFps, Target_40, tr("40 FPS (120 Hz VRR Recommended)")),
+                              PAIR(OotTargetFps, Target_60, tr("60 FPS (30W Turbo / Docked)")),
                           }});
     translations->insert({Settings::EnumMetadata<Settings::ScalingFilter>::Index(),
                           {

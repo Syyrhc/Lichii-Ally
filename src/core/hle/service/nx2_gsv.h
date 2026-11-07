@@ -1932,11 +1932,14 @@ private:
         if (forced_interval != 0) {
             swap_interval = forced_interval;
         }
-        // Ocarina of Time's 30 FPS mode (lower-end PCs): two vblanks a frame. Its frame step
-        // follows the time measured (Dynamic FPS by Dark), so it keeps full speed.
+        // Ocarina of Time target FPS (30 / 40 / 60): its frame step follows the time measured
+        // (Dynamic FPS by Dark), so it keeps full speed at any rate.
         constexpr u64 OcarinaOfTimeId = 0x0400486024DEC000ULL;
-        if (process != nullptr && process->GetProgramId() == OcarinaOfTimeId &&
-            Settings::values.oot_30fps.GetValue()) {
+        const bool is_oot = process != nullptr && process->GetProgramId() == OcarinaOfTimeId;
+        const auto oot_fps = Settings::values.oot_30fps.GetValue()
+                                 ? Settings::OotTargetFps::Target_30
+                                 : Settings::values.oot_target_fps.GetValue();
+        if (is_oot && oot_fps == Settings::OotTargetFps::Target_30) {
             swap_interval = (std::max)(swap_interval, 2U);
         }
         const u32 refresh_rate = (timing & 0xffff) >= 30 && (timing & 0xffff) <= 240 ? timing & 0xffff : 60;
@@ -1955,6 +1958,13 @@ private:
         }
         auto interval = std::chrono::nanoseconds{
             100'000'000'000LL * swap_interval / refresh_rate / Settings::SpeedLimit()};
+        if (is_oot && oot_fps == Settings::OotTargetFps::Target_40 && forced_interval == 0) {
+            const auto interval_40 =
+                std::chrono::nanoseconds{100'000'000'000LL / 40 / Settings::SpeedLimit()};
+            if (interval < interval_40) {
+                interval = interval_40;
+            }
+        }
         // Genlock: with the host frame pacer on, a frame period within 1% of a whole number of
         // display refreshes becomes exactly that many measured refreshes (a "120 Hz" display at
         // 119.98 Hz: 33.3389 ms instead of 33.3333). On the game's own clock its frames drifted
@@ -2000,7 +2010,7 @@ private:
         }
     }
 
-    // At 30 FPS and below the host frame pacer (vk_host_pacer.h) presents frames as soon as they
+    // At 40 FPS and below the host frame pacer (vk_host_pacer.h) presents frames as soon as they
     // are rendered. Move this game's frames (at most 0.5 ms a frame, later only while it sleeps
     // here anyway) until each is ready ~6 ms before a display refresh: it is shown at that
     // refresh, evenly spaced (genlock keeps the phase), with little wait. If moving them stops
@@ -2014,7 +2024,7 @@ private:
             VideoCommon::Nx2Perf::g_host_phase_ns.load(std::memory_order_relaxed);
         const long long refresh =
             VideoCommon::Nx2Perf::g_host_refresh_ns.load(std::memory_order_relaxed);
-        if (interval < 25ms || ahead < 0 || refresh <= 0) {
+        if (interval < 24ms || ahead < 0 || refresh <= 0) {
             m_phase = {};
             return;
         }

@@ -432,12 +432,12 @@ bool PresentManager::PaceFrame(Frame* frame, std::stop_token token) {
         scheduler.GetMasterSemaphore().Wait(frame->render_tick);
     }
     const auto start = Clock::now();
-    // 30 FPS and below: no hold. Holding a frame for its refresh kept the GPU thread from
-    // getting a frame for the next one, so every frame arrived right after the last was shown
-    // and waited a whole frame (~30 ms of input lag). The game's pacing lines its frames up with
-    // the refreshes instead (g_host_phase_ns).
+    // 40 FPS and below: no full-refresh hold. Holding a frame for its refresh kept the GPU thread
+    // from getting a frame for the next one, so every frame arrived right after the last was shown
+    // and waited a whole frame (~25-30 ms of input lag). The game's pacing lines its frames up
+    // with the refreshes instead (g_host_phase_ns).
     if (VideoCommon::Nx2Perf::g_guest_frame_interval_ns.load(std::memory_order_relaxed) >=
-        25'000'000) {
+        24'000'000) {
         VideoCommon::Nx2Perf::g_host_phase_ns.store(pacer.NsToNextRefresh(start),
                                                     std::memory_order_relaxed);
         // Only a short hold, for a frame that would be shown a refresh early (after a late
