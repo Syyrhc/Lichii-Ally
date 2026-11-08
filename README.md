@@ -64,7 +64,7 @@ Testing on an ASUS ROG Xbox Ally X, ROG Ally (Z1E / X), Lenovo Legion Go, MSI Cl
 ## Hardware-Specific Optimizations
 
 1. **Windows 11 Hybrid Core Scheduling (`Zen 5 + Zen 5c` and Heterogeneous CPUs):**
-   - Queries processor `EfficiencyClass` topology via Windows CPU Sets (`GetSystemCpuSetInformation` and `SetThreadSelectedCpuSets`) so time-critical emulation threads prefer high-clock performance cores (`Zen 5` up to 5.0 GHz on Ryzen AI Z2 Extreme / HX 370) while allowing the OS scheduler to balance all 4 Switch 2 guest CPU threads without core starvation.
+   - Queries processor `EfficiencyClass` topology via Windows CPU Sets (`GetSystemCpuSetInformation` and `SetThreadSelectedCpuSets`). On hybrid CPUs with fewer than 8 performance logical processors (such as the ROG Xbox Ally X's `3x Zen 5 + 5x Zen 5c`), time-critical emulation threads run unrestricted across all 16 logical processors so the OS Hetero Scheduler uses both `Zen 5` and `Zen 5c` cores without crowding, while background shader compilation workers are steered to `Zen 5c` efficiency cores.
    - Dedicates isolated cores to `GpuFront` and `GpuBack` on processors with 6 or more physical performance cores (such as the 8-core `Zen 4` Ryzen Z1 Extreme).
 2. **UMA-Safe Memory & Texture Cache Management:**
    - Calibrates the integrated GPU memory budget (`4 GiB` Conservative / `6 GiB` Aggressive) and automatically recompresses Switch 2 ASTC textures to **BC3** (`4x` lower VRAM footprint than uncompressed RGBA8 on GPUs without native ASTC hardware), keeping `SparseLayers` (`384 MiB`) and `TrimmedAstcArray` (`256 MiB`) pools within handheld BIOS UMA carveouts without exhausting Windows host RAM.

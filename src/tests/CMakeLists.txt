@@ -21,6 +21,7 @@ add_executable(tests
     video_core/ampere_yoshi_title.cpp
     video_core/ampere_yoshi_compute.cpp
     video_core/texture_rect_descriptor.cpp
+    video_core/join_whole_copy.cpp
     audio_core/batch_decoder.cpp
     audio_core/hardware_audio_codec.cpp
     core/gpu_dirty_memory.cpp
@@ -124,6 +125,7 @@ add_executable(tests
     core/priority_queue.cpp
     core/internal_network/network.cpp
     video_core/memory_tracker.cpp
+    video_core/invalidation_accumulator.cpp
     video_core/memory_manager_runs.cpp
     video_core/nx2_perf_draw_binds.cpp
     video_core/nx2_perf_texture_writes.cpp

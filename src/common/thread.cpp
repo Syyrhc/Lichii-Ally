@@ -603,7 +603,21 @@ const WindowsCpuSets& CpuSets() {
             (entry.efficiency_class == best ? result.performance : result.efficiency)
                 .push_back(entry.id);
         }
-        result.hybrid = !result.efficiency.empty() && result.performance.size() >= 2;
+        // About ten time-critical threads (six guest cores, GPU front and back, Vulkan worker,
+        // timing, fencing) crowd fewer performance processors: an i5-1235U (2 P cores, 4 logical)
+        // or Ryzen AI Z2 Extreme (3 Zen 5 cores, 6 logical) crowds those cores if all ten threads
+        // are restricted to them. Place performance threads only with 8 or more performance
+        // logical processors, while still keeping efficiency cores for background workers.
+        constexpr size_t MinPerformanceProcessors = 8;
+        const bool few_performance = result.performance.size() < MinPerformanceProcessors;
+        result.hybrid = !result.efficiency.empty() && !few_performance;
+        if (!result.efficiency.empty() && few_performance) {
+            LOG_INFO(Common,
+                     "Hybrid CPU with {} performance and {} efficiency logical processors "
+                     "(fewer than {} performance): time-critical threads use all cores while "
+                     "background workers prefer efficiency cores",
+                     result.performance.size(), result.efficiency.size(), MinPerformanceProcessors);
+        }
         if (result.hybrid) {
             LOG_INFO(Common,
                      "Hybrid CPU: {} performance and {} efficiency logical processors, "
@@ -721,7 +735,7 @@ void SetCurrentThreadToEfficiencyCores() {
     }
     SetCurrentThreadCoreGroup(CoreGroup::Efficiency);
 #elif defined(_WIN32)
-    if (const WindowsCpuSets& sets = CpuSets(); sets.hybrid) {
+    if (const WindowsCpuSets& sets = CpuSets(); !sets.efficiency.empty()) {
         SelectCurrentThreadCpuSets(sets.efficiency);
     }
 #endif
