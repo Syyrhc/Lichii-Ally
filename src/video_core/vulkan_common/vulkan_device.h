@@ -79,6 +79,7 @@ VK_DEFINE_HANDLE(VmaPool)
     FEATURE(KHR, CooperativeMatrix, COOPERATIVE_MATRIX, cooperative_matrix)                        \
     FEATURE(KHR, Maintenance5, MAINTENANCE_5, maintenance5)                                        \
     FEATURE(KHR, Maintenance6, MAINTENANCE_6, maintenance6)                                        \
+    FEATURE(KHR, PipelineBinary, PIPELINE_BINARY, pipeline_binary)                                 \
     FEATURE(KHR, PipelineExecutableProperties, PIPELINE_EXECUTABLE_PROPERTIES,                     \
             pipeline_executable_properties)                                                        \
     FEATURE(KHR, PresentId, PRESENT_ID, present_id)                                                \
@@ -372,6 +373,23 @@ public:
         const VkDriverIdKHR id = GetDriverID();
         return id != VK_DRIVER_ID_AMD_PROPRIETARY && id != VK_DRIVER_ID_AMD_OPEN_SOURCE &&
                id != VK_DRIVER_ID_MESA_RADV;
+    }
+
+    /// AMD's own drivers can spend minutes on a software HMMA compute pipeline (Ocarina of
+    /// Time's upscaling network) and then fail it with VK_ERROR_OUT_OF_HOST_MEMORY. Such
+    /// pipelines are built on their own worker and their dispatches skipped until they exist,
+    /// instead of stalling the GPU thread. EDEN_NX2_DEFER_MATRIX_PIPELINES=1 forces this on any
+    /// driver, =0 turns it off.
+    bool DefersSoftwareMatrixPipelines() const {
+        static const char forced = [] {
+            const char* value = std::getenv("EDEN_NX2_DEFER_MATRIX_PIPELINES");
+            return value == nullptr ? '\0' : value[0];
+        }();
+        if (forced == '0' || forced == '1') {
+            return forced == '1';
+        }
+        const VkDriverIdKHR id = GetDriverID();
+        return id == VK_DRIVER_ID_AMD_PROPRIETARY || id == VK_DRIVER_ID_AMD_OPEN_SOURCE;
     }
 
     /// Returns true for tile-based deferred renderers.
@@ -1155,6 +1173,11 @@ FN_MAX_LIMIT_LIST
         return extensions.maintenance4;
     }
 
+    /// Returns true if VK_KHR_pipeline_binary is enabled (compiled pipelines can be saved).
+    bool IsKhrPipelineBinarySupported() const {
+        return extensions.pipeline_binary;
+    }
+
     /// Returns true if the device supports VK_KHR_maintenance5.
     bool IsKhrMaintenance5Supported() const {
         return extensions.maintenance5;
@@ -1337,6 +1360,7 @@ private:
         VkPhysicalDeviceDepthStencilResolveProperties depth_stencil_resolve{};
         VkPhysicalDeviceCustomBorderColorPropertiesEXT custom_border_color{};
         VkPhysicalDeviceCooperativeMatrixPropertiesKHR cooperative_matrix{};
+        VkPhysicalDeviceShaderIntegerDotProductProperties integer_dot_product{};
 
         VkPhysicalDeviceProperties properties{};
     };

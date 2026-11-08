@@ -137,10 +137,56 @@ void TextureCache<P>::RunGarbageCollector(bool out_of_memory) {
     bool evict_old_costly = false;
     u64 ticks_to_destroy = 0;
     size_t num_iterations = 0;
+    // Images that must be downloaded before eviction are downloaded together with one GPU wait,
+    // instead of one wait per image. They stay registered until then; `pending_freed` is the
+    // memory their deletion will free.
+    using Map = decltype(runtime.DownloadStagingBuffer(size_t{}));
+    using Copies = decltype(FullDownloadCopies(std::declval<const ImageInfo&>()));
+    struct PendingDownload {
+        ImageId image_id;
+        Map map;
+        Copies copies;
+    };
+    boost::container::small_vector<PendingDownload, 16> pending;
+    size_t pending_bytes = 0;
+    u64 pending_freed = 0;
+    const auto used_memory = [&] {
+        return total_used_memory - (std::min)(total_used_memory, pending_freed);
+    };
+    const auto Evict = [this](ImageId image_id) {
+        auto& image = slot_images[image_id];
+        if (True(image.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(image, image_id);
+        }
+        ++(True(image.flags & ImageFlagBits::CostlyLoad) ? gc_costly_deletes : gc_deletes);
+        UnregisterImage(image_id);
+        DeleteImage(image_id, image.scale_tick > frame_tick + 5);
+    };
+    const auto FlushPending = [&] {
+        if (pending.empty()) {
+            return;
+        }
+        runtime.Finish();
+        ++gc_download_waits;
+        for (PendingDownload& entry : pending) {
+            Image& image = slot_images[entry.image_id];
+            SwizzleImage(*gpu_memory, image.gpu_addr, image.info, entry.copies,
+                         entry.map.mapped_span, swizzle_data_buffer);
+            runtime.FreeDeferredStagingBuffer(entry.map);
+            ++gc_download_deletes;
+            // Guest memory holds the GPU's data now (DeleteImage must not mark it stale).
+            image.flags &= ~ImageFlagBits::GpuModified;
+            ClearStaleImage(image);
+            Evict(entry.image_id);
+        }
+        pending.clear();
+        pending_bytes = 0;
+        pending_freed = 0;
+    };
     const auto Configure = [&](bool allow_aggressive) {
-        high_priority_mode = out_of_memory || total_used_memory >= expected_memory;
+        high_priority_mode = out_of_memory || used_memory() >= expected_memory;
         aggressive_mode =
-            allow_aggressive && (out_of_memory || total_used_memory >= critical_memory);
+            allow_aggressive && (out_of_memory || used_memory() >= critical_memory);
         ticks_to_destroy = aggressive_mode ? 10ULL : high_priority_mode ? 25ULL : 50ULL;
         // EDEN_NX2_TC_MIN_AGE=<frames>: never evict images used more recently (thrash tests).
         static const u64 min_age = [] {
@@ -150,10 +196,14 @@ void TextureCache<P>::RunGarbageCollector(bool out_of_memory) {
         ticks_to_destroy = (std::max)(ticks_to_destroy, min_age);
         num_iterations = aggressive_mode ? 40 : (high_priority_mode ? 20 : 10);
     };
-    const auto Cleanup = [this, &num_iterations, &high_priority_mode, &aggressive_mode,
-                          &evict_old_costly, out_of_memory](ImageId image_id) {
+    const auto Cleanup = [&](ImageId image_id) {
         if (num_iterations == 0) {
             return true;
+        }
+        if (std::ranges::any_of(pending, [image_id](const PendingDownload& entry) {
+                return entry.image_id == image_id;
+            })) {
+            return false;
         }
         --num_iterations;
         auto& image = slot_images[image_id];
@@ -166,26 +216,32 @@ void TextureCache<P>::RunGarbageCollector(bool out_of_memory) {
             return false;
         }
         if (must_download) {
-            auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
-            const auto copies = FullDownloadCopies(image.info);
+            // As DownloadMemory: a batch is capped so the staging memory held at once stays bounded.
+            constexpr size_t MaxBatchBytes = 64_MiB;
+            // The batch is flushed after the passes only: deleting images while the LRU walk or
+            // the candidate list still refer to them is not safe. A full batch waits a frame.
+            if (!pending.empty() && pending_bytes + image.unswizzled_size_bytes > MaxBatchBytes) {
+                return false;
+            }
+            // Deferred: OpenGL hands a non-deferred download buffer to the next request at once.
+            auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes, true);
+            auto copies = FullDownloadCopies(image.info);
             image.DownloadMemory(map, copies);
-            runtime.Finish();
-            SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, map.mapped_span, swizzle_data_buffer);
-            ++gc_download_deletes;
+            pending_bytes += image.unswizzled_size_bytes;
+            pending_freed += (image.HasScaled() ? GetScaledImageSizeBytes(image) : 0) +
+                             ImageMemoryBytes(image);
+            pending.push_back(PendingDownload{image_id, map, std::move(copies)});
+        } else {
+            MarkStale(image); // before UntrackImage (see MarkStale)
+            Evict(image_id);
         }
-        if (True(image.flags & ImageFlagBits::Tracked)) {
-            UntrackImage(image, image_id);
-        }
-        ++(True(image.flags & ImageFlagBits::CostlyLoad) ? gc_costly_deletes : gc_deletes);
-        UnregisterImage(image_id);
-        DeleteImage(image_id, image.scale_tick > frame_tick + 5);
         if (out_of_memory) {
             return false;
         }
-        if (aggressive_mode && total_used_memory < critical_memory) {
+        if (aggressive_mode && used_memory() < critical_memory) {
             num_iterations >>= 2;
             aggressive_mode = false;
-        } else if (high_priority_mode && total_used_memory < expected_memory) {
+        } else if (high_priority_mode && used_memory() < expected_memory) {
             num_iterations >>= 1;
             high_priority_mode = false;
         }
@@ -202,6 +258,11 @@ void TextureCache<P>::RunGarbageCollector(bool out_of_memory) {
             std::vector<ImageId> candidates;
             const size_t limit = num_iterations * 8;
             lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, [&](ImageId image_id) {
+                if (std::ranges::any_of(pending, [image_id](const PendingDownload& entry) {
+                        return entry.image_id == image_id;
+                    })) {
+                    return false;
+                }
                 candidates.push_back(image_id);
                 return candidates.size() >= limit;
             });
@@ -253,10 +314,147 @@ void TextureCache<P>::RunGarbageCollector(bool out_of_memory) {
         evict_old_costly = false;
     }
     Collect();
-    if (out_of_memory || total_used_memory >= critical_memory) {
+    if (out_of_memory || used_memory() >= critical_memory) {
         Configure(true);
         Collect();
     }
+    FlushPending();
+}
+
+template <class P>
+void TextureCache<P>::UpdateStaleTracking(u64 run_begin, u64 run_pages, s32 delta) {
+    if (run_pages != 0) {
+        device_memory.UpdatePagesCachedCount(run_begin << STALE_PAGE_BITS,
+                                             run_pages << STALE_PAGE_BITS, delta);
+    }
+}
+
+template <class P>
+void TextureCache<P>::MarkStale(const ImageBase& image) {
+    if (!tc_skip_stale || False(image.flags & ImageFlagBits::GpuModified) ||
+        True(image.flags & (ImageFlagBits::Sparse | ImageFlagBits::Unbacked)) ||
+        image.guest_size_bytes == 0) {
+        return;
+    }
+    // Whole pages only: a page the image shares with other data keeps that data's state.
+    constexpr u64 page_size = u64{1} << STALE_PAGE_BITS;
+    const u64 first = (image.cpu_addr + page_size - 1) >> STALE_PAGE_BITS;
+    const u64 end = (image.cpu_addr + image.guest_size_bytes) >> STALE_PAGE_BITS;
+    if (end <= first || end > (u64{1} << 28)) {
+        return;
+    }
+    if (stale_bits.size() * 64 < end) {
+        stale_bits.resize((end + 63) / 64);
+    }
+    // Tracked from here on so CPU writes reach WriteMemory. Marking before the image's own
+    // tracking goes keeps the pages' write protection from switching off and on again.
+    u64 run_begin = 0;
+    u64 run_pages = 0;
+    for (u64 page = first; page < end; ++page) {
+        u64& word = stale_bits[page / 64];
+        const u64 bit = u64{1} << (page % 64);
+        if ((word & bit) != 0) {
+            UpdateStaleTracking(run_begin, run_pages, 1);
+            run_pages = 0;
+            continue;
+        }
+        word |= bit;
+        ++stale_page_count;
+        if (run_pages == 0) {
+            run_begin = page;
+        }
+        ++run_pages;
+    }
+    UpdateStaleTracking(run_begin, run_pages, 1);
+}
+
+template <class P>
+void TextureCache<P>::ClearStale(DAddr addr, size_t size) {
+    if (stale_page_count == 0 || size == 0) {
+        return;
+    }
+    constexpr u64 page_size = u64{1} << STALE_PAGE_BITS;
+    const u64 first = addr >> STALE_PAGE_BITS;
+    const u64 end = (std::min<u64>)((addr + size + page_size - 1) >> STALE_PAGE_BITS,
+                                    stale_bits.size() * 64);
+    u64 run_begin = 0;
+    u64 run_pages = 0;
+    for (u64 page = first; page < end;) {
+        u64& word = stale_bits[page / 64];
+        if (word == 0 && page % 64 == 0) {
+            UpdateStaleTracking(run_begin, run_pages, -1);
+            run_pages = 0;
+            page += 64;
+            continue;
+        }
+        const u64 bit = u64{1} << (page % 64);
+        if ((word & bit) != 0) {
+            word &= ~bit;
+            --stale_page_count;
+            if (run_pages == 0) {
+                run_begin = page;
+            }
+            ++run_pages;
+        } else {
+            UpdateStaleTracking(run_begin, run_pages, -1);
+            run_pages = 0;
+        }
+        ++page;
+    }
+    UpdateStaleTracking(run_begin, run_pages, -1);
+}
+
+template <class P>
+void TextureCache<P>::ClearStaleImage(const ImageBase& image) {
+    if (stale_page_count == 0) {
+        return;
+    }
+    if (False(image.flags & ImageFlagBits::Sparse)) {
+        ClearStale(image.cpu_addr, image.guest_size_bytes);
+        return;
+    }
+    ClearStaleGpu(image.gpu_addr, image.guest_size_bytes);
+}
+
+template <class P>
+void TextureCache<P>::ClearStaleGpu(GPUVAddr gpu_addr, size_t size) {
+    if (stale_page_count == 0) {
+        return;
+    }
+    // Each piece is contiguous in device memory (GetSubmappedRange splits where it is not).
+    for (const auto& [piece_addr, piece_size] : gpu_memory->GetSubmappedRange(gpu_addr, size)) {
+        if (const auto device_addr = gpu_memory->GpuToCpuAddress(piece_addr)) {
+            ClearStale(*device_addr, piece_size);
+        }
+    }
+}
+
+template <class P>
+bool TextureCache<P>::IsAllStale(DAddr addr, size_t size) const {
+    if (stale_page_count == 0 || size == 0) {
+        return false;
+    }
+    constexpr u64 page_size = u64{1} << STALE_PAGE_BITS;
+    const u64 first = addr >> STALE_PAGE_BITS;
+    const u64 end = (addr + size + page_size - 1) >> STALE_PAGE_BITS;
+    if (end > stale_bits.size() * 64) {
+        return false;
+    }
+    for (u64 page = first; page < end;) {
+        const u64 word = stale_bits[page / 64];
+        if (page % 64 == 0 && page + 64 <= end) {
+            if (word != ~u64{0}) {
+                return false;
+            }
+            page += 64;
+            continue;
+        }
+        if (((word >> (page % 64)) & 1) == 0) {
+            return false;
+        }
+        ++page;
+    }
+    return true;
 }
 
 template <class P>
@@ -442,12 +640,18 @@ void TextureCache<P>::TickFrame() {
         if constexpr (requires { runtime.LogMemoryStatistics(); }) {
             runtime.LogMemoryStatistics();
         }
-        LOG_INFO(HW_GPU, "Texture cache last 600 frames: created {} images, deleted {} (collector {}, {} costly, {} downloaded), {} async decodes, ASTC {} opaque / {} alpha",
+        LOG_INFO(HW_GPU, "Texture cache last 600 frames: created {} images, deleted {} (collector {}, {} costly, {} downloaded in {} GPU waits), {} async decodes, ASTC {} opaque / {} alpha",
                  images_created, images_deleted, gc_deletes + gc_costly_deletes, gc_costly_deletes,
-                 gc_download_deletes,
+                 gc_download_deletes, gc_download_waits,
                  async_decodes_queued, astc_opaque_images, astc_alpha_images);
         LOG_INFO(HW_GPU, "Texture cache last 600 frames: {} uploads from guest memory, {} MiB (largest {} MiB, {} by layer)",
                  images_uploaded, uploaded_bytes >> 20, largest_upload >> 20, layer_uploads);
+        LOG_INFO(HW_GPU,
+                 "Texture cache last 600 frames: stale uploads skipped {} ({} MiB), {} uploaded "
+                 "for buffer-written pages; {} MiB of pages marked stale",
+                 tc_stale_skips, tc_stale_skip_bytes >> 20, tc_stale_gpu_written,
+                 (stale_page_count << STALE_PAGE_BITS) >> 20);
+        tc_stale_skips = tc_stale_skip_bytes = tc_stale_gpu_written = 0;
         images_uploaded = uploaded_bytes = largest_upload = layer_uploads = 0;
         astc_opaque_images = astc_alpha_images = 0;
         std::vector<std::pair<u32, u64>> shapes;
@@ -463,7 +667,8 @@ void TextureCache<P>::TickFrame() {
         created_shapes.clear();
         // The per-image and per-shape tallies only feed debug lines: skip them while those are off.
         debug_stats = Common::Log::IsLevelEnabled(Common::Log::Class::HW_GPU, Common::Log::Level::Debug);
-        gc_deletes = gc_costly_deletes = gc_download_deletes = async_decodes_queued = 0;
+        gc_deletes = gc_costly_deletes = gc_download_deletes = gc_download_waits = 0;
+        async_decodes_queued = 0;
         images_created = images_deleted = 0;
     }
     // An image that could not be made at all: the driver is out of memory whatever the counts
@@ -968,6 +1173,7 @@ FramebufferId TextureCache<P>::GetFramebufferId(const RenderTargets& key) {
 
 template <class P>
 void TextureCache<P>::WriteMemory(DAddr cpu_addr, size_t size) {
+    ClearStale(cpu_addr, size);
     ForEachImageInRegion(cpu_addr, size, [this, cpu_addr, size](ImageId image_id, Image& image) {
         if (True(image.flags & ImageFlagBits::UnwrittenSparse)) {
             // Written at last: a backed image replaces it where it is used next.
@@ -1045,6 +1251,7 @@ void TextureCache<P>::DownloadMemory(DAddr cpu_addr, size_t size) {
             Image& image = slot_images[entry.image_id];
             SwizzleImage(*gpu_memory, image.gpu_addr, image.info, entry.copies,
                          entry.map.mapped_span, swizzle_data_buffer);
+            ClearStaleImage(image);
         }
         pending.clear();
         pending_bytes = 0;
@@ -1101,6 +1308,7 @@ void TextureCache<P>::UnmapMemory(DAddr cpu_addr, size_t size) {
         UnregisterImage(id);
         DeleteImage(id);
     }
+    ClearStale(cpu_addr, size);
 }
 
 template <class P>
@@ -1584,12 +1792,14 @@ void TextureCache<P>::PopAsyncFlushes() {
                 std::span<u8> download_span =
                     download_buffer.mapped_span.subspan(download_buffer.offset);
                 SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, download_span, swizzle_data_buffer);
+                ClearStaleImage(image);
             } else {
                 const BufferDownload& buffer_info = slot_buffer_downloads[download_info.object_id];
                 std::span<u8> download_span =
                     download_buffer.mapped_span.subspan(download_buffer.offset);
                 gpu_memory->WriteBlockUnsafe(buffer_info.address, download_span.data(),
                                              buffer_info.size);
+                ClearStaleGpu(buffer_info.address, buffer_info.size);
                 slot_buffer_downloads.erase(download_info.object_id);
             }
         }
@@ -1632,6 +1842,7 @@ void TextureCache<P>::PopAsyncFlushes() {
             const ImageBase& image = download_info.GetImage(slot_images);
             const auto copies = FullDownloadCopies(image.info);
             SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, download_span, swizzle_data_buffer);
+            ClearStaleImage(image);
             download_map.offset += image.unswizzled_size_bytes;
             download_span = download_span.subspan(image.unswizzled_size_bytes);
         }
@@ -1777,6 +1988,21 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
     // Images uploaded by layer stay tracked while some of their layers are dirty.
     if (False(image.flags & ImageFlagBits::Tracked)) {
         TrackImage(image, image_id);
+    }
+
+    // Made where a dropped GPU-written image left stale bytes (MarkStale): nothing to upload.
+    // Pages the buffer cache wrote on the GPU may hold data written back since: upload those.
+    if (tc_skip_stale && image.dirty_layers.empty() &&
+        False(image.flags & (ImageFlagBits::Sparse | ImageFlagBits::SparseLayers |
+                             ImageFlagBits::SparseTiles | ImageFlagBits::Unbacked)) &&
+        IsAllStale(image.cpu_addr, image.guest_size_bytes)) {
+        if (!Tegra::Nx2MayBeGpuWritten(image.cpu_addr, image.guest_size_bytes)) {
+            ++tc_stale_skips;
+            tc_stale_skip_bytes += image.guest_size_bytes;
+            runtime.TransitionImageLayout(image);
+            return;
+        }
+        ++tc_stale_gpu_written;
     }
 
     if (True(image.flags & ImageFlagBits::SparseLayers)) {
@@ -2717,9 +2943,12 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
         if (IsPixelFormatASTC(new_info.format) && runtime.UseOpaqueAstcFormat()) {
             const size_t scan_bytes = CalculateGuestSizeInBytes(new_info);
             if (scan_bytes <= MaxScanBytes) {
-                astc_scan_buffer.resize(scan_bytes);
-                gpu_memory->ReadBlockUnsafe(gpu_addr, astc_scan_buffer.data(), scan_bytes);
-                new_info.astc_opaque = AstcDataLooksOpaque(astc_scan_buffer);
+                // Scanned where it is when it is in one piece; only copied (into the scratch
+                // buffer) when the range is split.
+                Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::UnsafeRead>
+                    scan_data(*gpu_memory, gpu_addr, scan_bytes, &astc_scan_buffer);
+                new_info.astc_opaque =
+                    AstcDataLooksOpaque(std::span<const u8>{scan_data.data(), scan_data.size()});
                 ++(new_info.astc_opaque ? astc_opaque_images : astc_alpha_images);
             }
         }
@@ -2827,21 +3056,6 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
             return false;
         }
     };
-    if (overwritten_by_clear()) {
-        // Stays CpuModified: UpdateRenderTargets' PrepareImage drops the upload only when
-        // IsFullClear agrees the clear covers the whole image, and uploads it otherwise.
-        runtime.TransitionImageLayout(new_image);
-    } else {
-        // TODO: Only upload what we need
-        RefreshContents(new_image, new_image_id);
-    }
-
-    if (can_rescale) {
-        ScaleUp(new_image);
-    } else {
-        ScaleDown(new_image);
-    }
-
     std::ranges::sort(join_copies_to_do, [this](const JoinCopy& lhs, const JoinCopy& rhs) {
         const ImageBase& lhs_image = slot_images[lhs.id];
         const ImageBase& rhs_image = slot_images[rhs.id];
@@ -2881,21 +3095,105 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
         }
     }
 
-    for (const auto& copy_object : join_copies_to_do) {
+    // The copy from an alias into the new image, or null when the loop below skips it.
+    const auto alias_copy = [&](const JoinCopy& copy) -> const AliasedImage* {
+        if (!copy.is_alias) {
+            return nullptr;
+        }
+        const Image& overlap = slot_images[copy.id];
+        if (!overlap.IsSafeGpuCopy() || overlap.info.num_samples != new_image.info.num_samples) {
+            return nullptr;
+        }
+        const auto alias_pointer = join_alias_indices.find(copy.id);
+        if (alias_pointer == join_alias_indices.end()) {
+            return nullptr;
+        }
+        return &new_image.aliased_images[alias_pointer->second];
+    };
+    // Whether that copy writes every texel of the new image: a plain copy (same format) of every
+    // level and layer from its origin. Sparse and unbacked images still need RefreshContents to
+    // bind their memory.
+    const auto writes_whole_image = [&](const AliasedImage& aliased) {
+        const Image& source = slot_images[aliased.id];
+        if (new_image.info.type != ImageType::e2D || source.info.type != ImageType::e2D ||
+            source.info.format != new_image.info.format ||
+            source.info.astc_opaque != new_image.info.astc_opaque ||
+            True((source.flags | new_image.flags) & ImageFlagBits::UnwrittenSparse) ||
+            True(new_image.flags & (ImageFlagBits::SparseLayers | ImageFlagBits::SparseTiles |
+                                    ImageFlagBits::Unbacked))) {
+            return false;
+        }
+        const u32 block_width = VideoCore::Surface::DefaultBlockWidth(new_image.info.format);
+        const u32 block_height = VideoCore::Surface::DefaultBlockHeight(new_image.info.format);
+        if (can_rescale && (block_width > 1 || block_height > 1)) {
+            // CopyImage scales a rescaled copy's extent in blocks, which can round below the
+            // scaled image's size in blocks.
+            return false;
+        }
+        for (s32 level = 0; level < new_image.info.resources.levels; ++level) {
+            const Extent3D size = MipSize(new_image.info.size, level);
+            const u32 width = Common::DivCeil(size.width, block_width);
+            const u32 height = Common::DivCeil(size.height, block_height);
+            const bool covered = std::ranges::any_of(aliased.copies, [&](const ImageCopy& copy) {
+                return copy.dst_subresource.base_level == level &&
+                       copy.dst_subresource.base_layer == 0 &&
+                       copy.dst_subresource.num_layers >= new_image.info.resources.layers &&
+                       copy.dst_offset == Offset3D{} && copy.extent.width >= width &&
+                       copy.extent.height >= height;
+            });
+            if (!covered) {
+                return false;
+            }
+        }
+        return true;
+    };
+    // Copies run oldest first. When one of them writes the whole image, the upload from guest
+    // memory and the alias copies before it would be overwritten whole: neither is made. Ocarina
+    // of Time resizes a shadow map every frame in parts of Kokiri Forest, at the same address:
+    // each size is a new depth target and a new texture, both copied from older sizes, and their
+    // uploads took up to 17% of the GPU back thread there.
+    size_t first_copy = 0;
+    bool copied_whole = false;
+    for (size_t index = join_copies_to_do.size(); index-- > 0;) {
+        const AliasedImage* const aliased = alias_copy(join_copies_to_do[index]);
+        if (aliased != nullptr && writes_whole_image(*aliased)) {
+            first_copy = index;
+            copied_whole = true;
+            break;
+        }
+    }
+    if (overwritten_by_clear()) {
+        // Stays CpuModified: UpdateRenderTargets' PrepareImage drops the upload only when
+        // IsFullClear agrees the clear covers the whole image, and uploads it otherwise.
+        runtime.TransitionImageLayout(new_image);
+    } else if (copied_whole) {
+        // What RefreshContents does, without the upload.
+        new_image.flags &= ~ImageFlagBits::CpuModified;
+        if (False(new_image.flags & ImageFlagBits::Tracked)) {
+            TrackImage(new_image, new_image_id);
+        }
+        runtime.TransitionImageLayout(new_image);
+    } else {
+        // TODO: Only upload what we need
+        RefreshContents(new_image, new_image_id);
+    }
+
+    if (can_rescale) {
+        ScaleUp(new_image);
+    } else {
+        ScaleDown(new_image);
+    }
+
+    for (size_t index = 0; index < join_copies_to_do.size(); ++index) {
+        const JoinCopy& copy_object = join_copies_to_do[index];
         Image& overlap = slot_images[copy_object.id];
         if (copy_object.is_alias) {
-            if (!overlap.IsSafeGpuCopy()) {
+            const AliasedImage* const aliased =
+                index >= first_copy ? alias_copy(copy_object) : nullptr;
+            if (aliased == nullptr) {
                 continue;
             }
-            if (overlap.info.num_samples != new_image.info.num_samples) {
-                continue;
-            }
-            const auto alias_pointer = join_alias_indices.find(copy_object.id);
-            if (alias_pointer == join_alias_indices.end()) {
-                continue;
-            }
-            const AliasedImage& aliased = new_image.aliased_images[alias_pointer->second];
-            CopyImage(new_image_id, aliased.id, aliased.copies);
+            CopyImage(new_image_id, aliased->id, aliased->copies);
             new_image.modification_tick = overlap.modification_tick;
             continue;
         }
@@ -3380,6 +3678,7 @@ void TextureCache<P>::RegisterImage(ImageId image_id) {
     if (False(image.flags & ImageFlagBits::Sparse)) {
         auto map_id =
             slot_map_views.insert(image.gpu_addr, image.cpu_addr, image.guest_size_bytes, image_id);
+        page_filter.Mark(image.cpu_addr, image.guest_size_bytes);
         ForEachCPUPage(image.cpu_addr, image.guest_size_bytes,
                        [this, map_id](u64 page) { page_table[page].push_back(map_id); });
         image.map_view_id = map_id;
@@ -3389,6 +3688,7 @@ void TextureCache<P>::RegisterImage(ImageId image_id) {
     ForEachSparseSegment(
         image, [this, image_id, &sparse_maps](GPUVAddr gpu_addr, DAddr cpu_addr, size_t size) {
             auto map_id = slot_map_views.insert(gpu_addr, cpu_addr, size, image_id);
+            page_filter.Mark(cpu_addr, size);
             ForEachCPUPage(cpu_addr, size,
                            [this, map_id](u64 page) { page_table[page].push_back(map_id); });
             sparse_maps.push_back(map_id);
@@ -3535,6 +3835,7 @@ template <class P>
 void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
     ImageBase& image = slot_images[image_id];
     ++images_deleted;
+    MarkStale(image);
     // Drop every decode still queued for it, whatever IsDecoding says: an image re-decoded while
     // a decode was in flight has two, and the first to finish clears the flag. A decode left
     // behind was uploaded into the next image to take this slot (another texture's data: garbage

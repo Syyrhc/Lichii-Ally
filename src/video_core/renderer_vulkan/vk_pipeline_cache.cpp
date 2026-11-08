@@ -481,10 +481,9 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
                                ? 1ULL
                                : GetTotalPipelineWorkers(device_)},
       emission_budget{num_pipeline_workers},
-      workers(num_pipeline_workers,
-              "VkPipelineBuilder", {}, Common::ThreadPlacement::Background),
-      serialization_thread(1, "VkPipelineSerialization", {},
-                           Common::ThreadPlacement::Background) {
+      workers(num_pipeline_workers, "VkPipelineBuilder", {}, Common::ThreadPlacement::Background),
+      deferred_workers(1, "VkDeferredPipelines", {}, Common::ThreadPlacement::Background),
+      serialization_thread(1, "VkPipelineSerialization", {}, Common::ThreadPlacement::Background) {
     const auto& float_control{device.FloatControlProperties()};
     const VkDriverId driver_id{device.GetDriverID()};
     const VkShaderStageFlags subgroup_stages{device.GetSubgroupSupportedStages()};
@@ -793,6 +792,9 @@ PipelineCache::~PipelineCache() {
     background_ready.clear();
     graphics_cache.clear();
     evicted_pipelines.clear();
+    if (pipeline_binaries_enabled) {
+        device.GetLogical().DisablePipelineBinaryCache();
+    }
 }
 
 void PipelineCache::SaveUsedPipelines() {
@@ -1261,6 +1263,15 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan-ally", CACHE_VERSION);
     used_pipelines_filename =
         VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_used-ally", CACHE_VERSION);
+    // NVIDIA's driver already keeps every pipeline in its own disk cache, so saving binaries
+    // there would only duplicate it.
+    if (Settings::values.use_vulkan_pipeline_binaries.GetValue() &&
+        device.IsKhrPipelineBinarySupported() &&
+        device.GetDriverID() != VK_DRIVER_ID_NVIDIA_PROPRIETARY) {
+        device.GetLogical().EnablePipelineBinaryCache(
+            VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_binaries", CACHE_VERSION));
+        pipeline_binaries_enabled = true;
+    }
     for (const char* const source_prefix : {"vulkan-frizti", "vulkan"}) {
         std::error_code error;
         const auto src_cache =
@@ -1283,31 +1294,26 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             std::filesystem::copy_file(src_used, used_pipelines_filename, error);
         }
     }
-    // zortos293/Lichii builds from #194 on (cache version 53) write the same records as this
-    // build under another version number: with no cache of this version, copy theirs and
-    // relabel the copy. Their files stay as they are.
-    if (std::error_code error; !std::filesystem::exists(pipeline_cache_filename, error)) {
-        constexpr u32 ZortosCacheVersion = 53;
-        constexpr std::array<char, 8> PipelineCacheMagic{'y', 'u', 'z', 'u', 'c', 'a', 'c', 'h'};
-        const auto zortos = VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan",
-                                                                    ZortosCacheVersion);
-        if (VideoCommon::CopyCompatiblePipelineCache(zortos, pipeline_cache_filename,
-                                                     PipelineCacheMagic, ZortosCacheVersion,
-                                                     CACHE_VERSION)) {
-            LOG_INFO(Render_Vulkan, "Copied cache version {} pipeline cache {} to {}",
-                     ZortosCacheVersion, Common::FS::PathToUTF8String(zortos),
+    constexpr std::array<char, 8> shader_magic{'y', 'u', 'z', 'u', 'c', 'a', 'c', 'h'};
+    // Versions 52 and 53 store the same records; only translation output changed since, and it is
+    // rebuilt at load. The newest one present is copied.
+    constexpr std::array<u32, 2> compatible_versions{53, 52};
+    for (const u32 version : compatible_versions) {
+        if (VideoCommon::CopyCompatiblePipelineCache(
+                VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan", version),
+                pipeline_cache_filename, shader_magic, version, CACHE_VERSION)) {
+            LOG_INFO(Render_Vulkan, "Copied cache version {} pipeline cache to {}", version,
                      Common::FS::PathToUTF8String(pipeline_cache_filename));
-            const auto zortos_used = VideoCommon::VersionedPipelineCachePath(
-                base_dir, "vulkan_used", ZortosCacheVersion);
-            if (!std::filesystem::exists(used_pipelines_filename, error) &&
-                std::filesystem::exists(zortos_used, error)) {
-                std::filesystem::copy_file(zortos_used, used_pipelines_filename, error);
-            }
         }
+        std::error_code migration_error;
+        std::filesystem::copy_file(
+            VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_used", version),
+            used_pipelines_filename, std::filesystem::copy_options::none, migration_error);
     }
     used_pipelines = LoadUsedPipelines(used_pipelines_filename, MaxUsedPipelineAge(device));
     used_pipelines_saved = std::chrono::steady_clock::now();
     size_t skipped_pipelines = 0;
+    size_t foreign_driver_pipelines = 0;
     size_t queued_graphics = 0;
     std::vector<std::pair<GraphicsPipelineCacheKey, std::vector<FileEnvironment>>> deferred_graphics;
 
@@ -1365,6 +1371,18 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     const auto load_graphics{[&](std::ifstream& file, std::vector<FileEnvironment> envs) {
         GraphicsPipelineCacheKey key;
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
+        if (key.state.driver_id != dynamic_features.driver_id ||
+            key.state.driver_version != dynamic_features.driver_version) {
+            // Pipelines from a cache made with another driver (a shared shader pack) are
+            // recompiled from their guest shaders like any other cached pipeline; only the driver
+            // fields of the key say where they came from.
+            key.state.driver_id = dynamic_features.driver_id;
+            key.state.driver_version = dynamic_features.driver_version;
+            if (!dynamic_features.has_extended_dynamic_state_2_logic_op) {
+                key.state.extended_dynamic_state_2_logic_op.Assign(0);
+            }
+            ++foreign_driver_pipelines;
+        }
 
         // Task/mesh pipelines carry their mesh registers since this format stored them (no
         // earlier record of this cache version holds one).
@@ -1446,6 +1464,10 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     compute_envs.clear();
 
     LOG_INFO(Render_Vulkan, "Total Pipeline Count: {}", state.total);
+    if (foreign_driver_pipelines != 0) {
+        LOG_INFO(Render_Vulkan, "{} cached graphics pipelines came from another driver",
+                 foreign_driver_pipelines);
+    }
     if (skipped_pipelines != 0) {
         LOG_INFO(Render_Vulkan,
                  "{} cached graphics pipelines are built when first needed",
@@ -2281,11 +2303,15 @@ ComputePipelineCacheEntry PipelineCache::CreateComputePipeline(
         const auto name{fmt::format("Shader {:016x}", key.unique_hash)};
         spv_module.SetObjectNameEXT(name.c_str());
     }
-    Common::ThreadWorker* const thread_worker{build_in_parallel ? &workers : nullptr};
+    const bool deferred = program.info.uses_software_matrix &&
+                          device.DefersSoftwareMatrixPipelines();
+    Common::ThreadWorker* const thread_worker{deferred            ? &deferred_workers
+                                              : build_in_parallel ? &workers
+                                                                  : nullptr};
     return {.pipeline = std::make_unique<ComputePipeline>(
                 device, scheduler, vulkan_pipeline_cache, descriptor_pool, guest_descriptor_queue,
                 descriptor_buffer_ring, thread_worker, statistics, &shader_notify, program.info,
-                std::move(spv_module), key.unique_hash),
+                std::move(spv_module), key.unique_hash, deferred),
             .null_pointer_slots = env.IsNativeProgram() ? env.NullStoragePointerSlots()
                                                         : std::vector<std::pair<u32, u32>>{},
             .mapped_pointers =

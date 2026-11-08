@@ -218,6 +218,7 @@ private:
     bool use_vulkan_pipeline_cache{};
     bool oot_visual_workaround{};
     u64 visual_workaround_title{};
+    bool pipeline_binaries_enabled{};
     const size_t num_pipeline_workers;
     EmissionBudget emission_budget;
 
@@ -267,6 +268,9 @@ private:
     std::atomic_bool flush_in_flight{};
 
     Common::ThreadWorker workers;
+    /// Software HMMA compute pipelines on drivers that take minutes on them
+    /// (Device::DefersSoftwareMatrixPipelines); nothing waits for this worker.
+    Common::ThreadWorker deferred_workers;
     Common::ThreadWorker serialization_thread;
     DynamicFeatures dynamic_features;
 
