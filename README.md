@@ -76,7 +76,7 @@ Testing on an ASUS ROG Xbox Ally X, ROG Ally (Z1E / X), Lenovo Legion Go, MSI Cl
    - Launches games directly into **Borderless Windowed Fullscreen** by default on Windows to maintain seamless VRR engagement.
    - Binds default controller hotkeys to `View` and `Menu` stick-click combinations rather than the Xbox Guide button, preventing conflicts with Windows Xbox Game Bar.
 6. **`clang-cl` 22 + ThinLTO + PGO + Upstream `nx2` Fixes:**
-   - Compiled with LLVM 22.1.8, ThinLTO, and Profile-Guided Optimization (`lichii-windows.profdata`), incorporating Turing macro JIT fallback recovery, bounded 8 ms wait for unbuilt Switch 2 pipelines, and AV1 cutscene audio/video synchronization.
+   - Compiled with LLVM 22.1.8, ThinLTO, and Profile-Guided Optimization (`lichii-windows.profdata`), incorporating non-blocking Switch 2 asynchronous pipeline skipping (`NativeAsyncDraws::Skip`), *Ocarina of Time* anti-aliasing tensor network bypass (`No sharpening` by default for +20% Kokiri Forest FPS), delayed puller fence release, AMD compare-sampler and blend state fixes, Turing macro JIT fallback recovery, and AV1 cutscene audio/video synchronization.
 
 ## Recommended System Configuration (ROG Xbox Ally X)
 

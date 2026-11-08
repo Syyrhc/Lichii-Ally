@@ -34,6 +34,9 @@ dispatches, capped at one million. Logs include exact shader identity, QMD launc
 bounded constant-buffer words and raw texture descriptors. They contain guest addresses
 and should remain private. No shaders are skipped or game files changed by this capture.
 
+The "Ocarina of Time anti-aliasing" option (No sharpening, docs/nx2/oot-network-bypass.md)
+bypasses the game's sharpening anti-aliasing network on GPUs without NVIDIA DLSS.
+
 ## Settings and comparison runs
 
 "Use NVIDIA DLSS in place of a game's DLSS" defaults to off and takes effect when the game

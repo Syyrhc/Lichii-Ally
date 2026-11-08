@@ -461,6 +461,9 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func, bool is_in
         TraceRenderState(is_indexed, "no-pipeline", nullptr);
         return;
     }
+    if (VideoCommon::OotNetwork::BypassEnabled(Settings::GetCurrentProgramID())) {
+        TrackOotTonemappedImage(*pipeline);
+    }
     // Task/mesh pipelines: the draw's vertex count is the number of task workgroups.
     mesh_draw = pipeline->IsMeshPipeline();
     // EDEN_NX2_NO_MESH=1: skip task/mesh draws as before they were supported (A/B comparisons).
@@ -920,6 +923,25 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
                      regs.blend.enable[0], seen.size());
         }
     }
+    // A direct draw with no vertices, or no instances outside task/mesh pipelines, records
+    // nothing. Skip it before the pipeline, buffer and descriptor work: dirty state, deferred
+    // clears and query counter toggles stay pending for the next recorded draw, clear or render
+    // pass end, which apply them before anything can observe them. With transform feedback on
+    // the draw goes through, since its counters are begun and closed around draws.
+    if (!gpu_count && maxwell3d->regs.transform_feedback_enabled == 0 &&
+        (MakeDrawParams(maxwell3d->draw_manager.draw_state, instance_count, is_indexed)
+                 .num_vertices == 0 ||
+         (instance_count == 0 && [this] {
+             const GraphicsPipeline* const pipeline = pipeline_cache.CurrentGraphicsPipeline();
+             return pipeline != nullptr && !pipeline->IsMeshPipeline();
+         }()))) {
+        if (Common::DkbFrameTrace::Enabled()) {
+            ++trace_draws;
+            ++trace_zero_direct;
+        }
+        gpu.TickWork();
+        return;
+    }
     PrepareDraw(is_indexed, [this, is_indexed, instance_count, gpu_count] {
         const auto& draw_state = maxwell3d->draw_manager.draw_state;
         const u32 num_instances{instance_count};
@@ -1083,6 +1105,27 @@ void RasterizerVulkan::DrawIndirect() {
         }
     }, true);
     buffer_cache.SetDrawIndirect(nullptr);
+}
+
+VideoCommon::OotNetwork::BypassState* RasterizerVulkan::OotNetworkBypass() {
+    return &oot_network_bypass;
+}
+
+void RasterizerVulkan::TrackOotTonemappedImage(const GraphicsPipeline& pipeline) {
+    const auto& hashes = pipeline.ShaderHashes();
+    if (std::none_of(hashes.begin(), hashes.end(), VideoCommon::OotNetwork::IsTonemapShader)) {
+        return;
+    }
+    const auto& target = maxwell3d->regs.rt[0];
+    if (target.Address() == 0) {
+        return;
+    }
+    std::scoped_lock lock{oot_network_bypass.mutex};
+    if (oot_network_bypass.tonemapped.Address() != target.Address()) {
+        LOG_INFO(Render_Vulkan, "Ocarina of Time: tonemapped image at {:#x} {}x{}", target.Address(),
+                 target.width, target.height);
+    }
+    oot_network_bypass.tonemapped = target;
 }
 
 void RasterizerVulkan::TraceDrawFailure(std::string_view reason) {

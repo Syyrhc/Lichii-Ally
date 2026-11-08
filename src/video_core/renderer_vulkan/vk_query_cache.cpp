@@ -313,7 +313,8 @@ public:
                 // "visible" count (1024 samples) and copy without waiting: Vulkan leaves the slots
                 // of unavailable queries unwritten, so a late result reads as visible (an occluded
                 // object drawn) instead of hidden (the scene vanished) or a stall (9 -> 22 FPS).
-                const bool preset_visible = device.GetDriverID() == VK_DRIVER_ID_AMD_PROPRIETARY;
+                const bool preset_visible = driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
+                                            driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE;
                 const bool no_wait = preset_visible;
                 scheduler.RequestOutsideRenderPassOperationContext();
                 scheduler.Record([merged, span_start, span_end, base_offset, query_pool,
