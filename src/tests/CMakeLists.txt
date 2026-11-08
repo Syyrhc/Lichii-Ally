@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 add_executable(tests
+    video_core/vulkan_overlay_filter.cpp
     video_core/unswizzle_workers.cpp
     video_core/aftermath_dump.cpp
     video_core/gpu_timestamp.cpp
@@ -62,6 +63,7 @@ add_executable(tests
     video_core/async_draw_policy.cpp
     video_core/async_shader_emission.cpp
     video_core/pipeline_build.cpp
+    video_core/pipeline_cache_policy.cpp
     video_core/spirv_storage_alignment.cpp
     video_core/pipeline_optimization.cpp
     video_core/spirv_atomic_retry.cpp
@@ -91,6 +93,7 @@ add_executable(tests
     video_core/pipeline_cache_files.cpp
     video_core/storage_binding_capacity.cpp
     video_core/native_indirect_reset.cpp
+    video_core/native_qmd.cpp
     video_core/gpu_command_safety.cpp
     video_core/syncpoint_actions.cpp
     video_core/nx2_video_render.cpp
@@ -98,6 +101,7 @@ add_executable(tests
     video_core/spirv_software_matrix.cpp
     video_core/spirv_builtin_capabilities.cpp
     video_core/virtual_range_cache.cpp
+    video_core/spirv_nan_safe_min_max.cpp
     common/bit_field.cpp
     common/cityhash.cpp
     common/container_hash.cpp

@@ -54,6 +54,12 @@ KeplerCompute::KeplerCompute(MemoryManager& memory_manager_)
                      fmt::ptr(this), memory_manager.GetID());
         };
     }
+    native_qmd.skipped_release = [](u64 address, std::size_t slot, std::span<const u32, 4> words) {
+        static std::unordered_set<u32> logged;
+        if (!logged.insert(words[1]).second) return;
+        LOG_WARNING(HW_GPU, "Native QMD {:#x} skipped release slot {} with unsupported format, words={:08x}",
+                    address, slot, fmt::join(words, ","));
+    };
     execution_mask.reset();
     execution_mask[KEPLER_COMPUTE_REG_INDEX(exec_upload)] = true;
     execution_mask[KEPLER_COMPUTE_REG_INDEX(data_upload)] = true;
@@ -133,16 +139,8 @@ void KeplerCompute::ProcessNativeReportSemaphore(u32 argument) {
     if ((argument >> 3) & 1) {
         const u32 reduction = (argument >> 9) & 7;
         rasterizer->SignalFence([this, address, payload, reduction] {
-            const u32 old_value = memory_manager.Read<u32>(address);
-            const u32 value = reduction == 0   ? old_value + payload
-                              : reduction == 1 ? (std::min)(old_value, payload)
-                              : reduction == 2 ? (std::max)(old_value, payload)
-                              : reduction == 3 ? (old_value >= payload ? 0 : old_value + 1)
-                              : reduction == 4 ? (old_value == 0 || old_value > payload ? payload : old_value - 1)
-                              : reduction == 5 ? (old_value & payload)
-                              : reduction == 6 ? (old_value | payload)
-                                               : (old_value ^ payload);
-            memory_manager.Write<u32>(address, value);
+            memory_manager.Write<u32>(address, ReduceSemaphore(reduction, false,
+                                                               memory_manager.Read<u32>(address), payload));
         });
         return;
     }
@@ -395,10 +393,12 @@ bool KeplerCompute::ProcessNativeMethod(Core::System& system, u32 method, u32 ar
                 return true;
             },
             [&](u64 address, u32 payload, u32 flags) {
-                if (!memory_manager.IsFullyMappedRange(address, sizeof(payload))) return false;
+                const bool four_words = (flags >> 30) == 0;
+                if (!memory_manager.IsFullyMappedRange(address, four_words ? 16 : sizeof(payload))) return false;
                 if (flags & (1U << 26)) {
-                    rasterizer->SignalFence([this, address, payload] {
-                        const u32 value = memory_manager.Read<u32>(address) + payload;
+                    rasterizer->SignalFence([this, address, payload, flags] {
+                        const u32 value = ReduceSemaphore((flags >> 20) & 7, (flags >> 24) & 1,
+                                                          memory_manager.Read<u32>(address), payload);
                         memory_manager.Write<u32>(address, value);
                         if (const auto device = memory_manager.GpuToCpuAddress(address)) {
                             Tegra::Nx2SemaphoreWaiters::Get().OnWrite(*device, value);
@@ -408,11 +408,15 @@ bool KeplerCompute::ProcessNativeMethod(Core::System& system, u32 method, u32 ar
                             return text ? u64{std::strtoull(text, nullptr, 16)} : u64{};
                         }();
                         if (watch != 0 && (address & ~u64{0xf}) == watch) {
-                            LOG_INFO(HW_GPU, "Semaphore watch: QMD release add {:#x} -> {:#x}", address, value);
+                            LOG_INFO(HW_GPU, "Semaphore watch: QMD release reduction {:#x} -> {:#x}", address, value);
                         }
                         VideoCommon::TraceNativeQuery(1, memory_manager.GetID(), address,
                             memory_manager.GpuToCpuAddress(address).value_or(0), 0, value, 1U << 26);
                     });
+                } else if (four_words) {
+                    rasterizer->Query(address, VideoCommon::QueryType::Payload,
+                        VideoCommon::QueryPropertiesFlags::IsAFence | VideoCommon::QueryPropertiesFlags::HasTimeout,
+                        payload, 0);
                 } else if (flags & (1U << 19)) {
                     // NVN2 tracks QMD completion with a max release (bit 19) into a word other
                     // releases also advance: a plain write would move it backwards and leave
@@ -1020,8 +1024,8 @@ bool KeplerCompute::BypassOotNetwork(u64 program_id, u64 native_key) {
     if (!output || output->format != Texture::TextureFormat::B10G11R11 || output->Address() == 0 ||
         output->Address() == tonemapped.Address() || !output->IsBlockLinear() ||
         tonemapped.format != Tegra::RenderTargetFormat::B10G11R11_FLOAT ||
-        tonemapped.tile_mode.is_pitch_linear || tonemapped.width != output->Width() ||
-        tonemapped.height != output->Height()) {
+        tonemapped.tile_mode.is_pitch_linear || tonemapped.width == 0 || tonemapped.height == 0 ||
+        tonemapped.width > output->Width() || tonemapped.height > output->Height()) {
         state->output_replaced.store(false, std::memory_order_relaxed);
         static bool warned = false;
         if (!std::exchange(warned, true)) {
@@ -1051,11 +1055,18 @@ bool KeplerCompute::BypassOotNetwork(u64 program_id, u64 native_key) {
     source.block_depth.Assign(tonemapped.tile_mode.block_depth);
     source.addr_upper = tonemapped.address_high;
     source.addr_lower = tonemapped.address_low;
+    // With dynamic resolution the tonemapped image can be smaller than the output: scale it up
+    // bilinearly instead of falling back to the network.
+    source.width = tonemapped.width;
+    source.height = tonemapped.height;
     const s32 width = static_cast<s32>(output->Width());
     const s32 height = static_cast<s32>(output->Height());
+    const s32 src_width = static_cast<s32>(tonemapped.width);
+    const s32 src_height = static_cast<s32>(tonemapped.height);
+    const bool scaled = src_width != width || src_height != height;
     const Fermi2D::Config config{
         .operation = Fermi2D::Operation::SrcCopy,
-        .filter = Fermi2D::Filter::Point,
+        .filter = scaled ? Fermi2D::Filter::Bilinear : Fermi2D::Filter::Point,
         .must_accelerate = true,
         .dst_x0 = 0,
         .dst_y0 = 0,
@@ -1063,8 +1074,8 @@ bool KeplerCompute::BypassOotNetwork(u64 program_id, u64 native_key) {
         .dst_y1 = height,
         .src_x0 = 0,
         .src_y0 = 0,
-        .src_x1 = width,
-        .src_y1 = height,
+        .src_x1 = src_width,
+        .src_y1 = src_height,
     };
     const bool copied = rasterizer->AccelerateSurfaceCopy(source, destination, config);
     state->output_replaced.store(copied, std::memory_order_relaxed);

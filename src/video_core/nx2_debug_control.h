@@ -65,8 +65,63 @@ inline std::atomic<int> g_dma_snapshot{-1};
 /// measure how long each frame was shown.
 inline std::atomic<int> g_host_pace{-1};
 
+/// Numbered experiment switches EDEN_NX2_EXP0 .. EDEN_NX2_EXP63, live through the debug server:
+/// slots for batches of fixes built together and A/B-tested in one session
+/// (E:\OotRemakeEmulation\work\EXPERIMENTS.md lists which fix uses which slot). 0 = off.
+inline constexpr int ExperimentCount = 64;
+inline std::atomic<int> g_experiments[ExperimentCount]{};
+
+inline void LoadExperiments() {
+    static const bool loaded = [] {
+        // Kept experiments: on unless their variable says otherwise.
+        // EXP8 = 6 (bits 2 and 4): skip guest upload for new 2D images overwritten whole by a
+        // GPU copy, and untile 2D levels >= 2 MiB in bands across idle transcode workers.
+        g_experiments[8].store(6, std::memory_order_relaxed);
+        // EXP9 = 1: native uniform bank pages compared only when they may have changed.
+        g_experiments[9].store(1, std::memory_order_relaxed);
+        // EXP10 = 1: macro DMA reads wait only for the dispatches, uploads, copies and releases
+        // that may have written them.
+        g_experiments[10].store(1, std::memory_order_relaxed);
+        // EXP14: unchanged macro register writes dropped before FrontWrite's other checks.
+        g_experiments[14].store(1, std::memory_order_relaxed);
+        // EXP21 = 1: a texture whose handle word is a storage buffer's address gets no texture
+        // (VideoCommon::HandleIsStoragePointer). Ocarina of Time's Zora's River waterfall
+        // flickered every other frame in bursts without it.
+        g_experiments[21].store(1, std::memory_order_relaxed);
+        for (int n = 0; n < ExperimentCount; ++n) {
+            const std::string name = "EDEN_NX2_EXP" + std::to_string(n);
+            if (const char* value = std::getenv(name.c_str())) {
+                g_experiments[n].store(std::atoi(value), std::memory_order_relaxed);
+            }
+        }
+        return true;
+    }();
+    static_cast<void>(loaded);
+}
+
+/// The value of experiment switch `n` (EDEN_NX2_EXP<n>), 0 unless set.
+[[nodiscard]] inline int Experiment(int n) {
+    LoadExperiments();
+    return g_experiments[n].load(std::memory_order_relaxed);
+}
+
 /// The live switch called `name`, or null.
 [[nodiscard]] inline std::atomic<int>* FindSwitch(std::string_view name) {
+    if (constexpr std::string_view prefix = "EDEN_NX2_EXP";
+        name.size() > prefix.size() && name.substr(0, prefix.size()) == prefix) {
+        int n = 0;
+        for (const char c : name.substr(prefix.size())) {
+            if (c < '0' || c > '9') {
+                return nullptr;
+            }
+            n = n * 10 + (c - '0');
+        }
+        if (n >= ExperimentCount) {
+            return nullptr;
+        }
+        LoadExperiments();
+        return &g_experiments[n];
+    }
     if (name == "EDEN_NX2_DMA_WAIT_WRITERS") {
         return &g_dma_wait_writers;
     }

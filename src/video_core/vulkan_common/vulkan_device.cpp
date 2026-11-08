@@ -429,6 +429,32 @@ u64 AllocatedUsage(VkDeviceSize driver_usage, const VmaBudget& vma_budget) {
     return driver_usage - (std::min)(driver_usage, unused);
 }
 
+/// AMD GPUs before RDNA3 have no matrix units. AMD's driver still lists 16x16x16 float16
+/// cooperative matrix shapes on RDNA2 and then crashes building the HMMA compute pipelines
+/// (RX 6700 XT, driver 2.0.353, amdvlk64.dll+0x2f1c963 during the boot pipeline build).
+[[nodiscard]] bool IsAmdWithoutMatrixUnits(u32 vendor_id, u32 device_id) {
+    if (vendor_id != 0x1002) {
+        return false;
+    }
+    // GCN discrete, Navi 1x to Navi 23, then Navi 24 (0x7400-0x741F is CDNA2, which has matrix
+    // units). RDNA3 starts at 0x7440 (Navi 31).
+    if ((device_id >= 0x6600 && device_id <= 0x6FFF) ||
+        (device_id >= 0x7310 && device_id <= 0x73FF) ||
+        (device_id >= 0x7420 && device_id <= 0x743F)) {
+        return true;
+    }
+    switch (device_id) {
+    case 0x163F: // Van Gogh (Steam Deck)
+    case 0x1435: // Sephiroth (Steam Deck OLED)
+    case 0x1681: // Rembrandt
+    case 0x164E: // Raphael and Granite Ridge graphics
+    case 0x1506: // Mendocino
+        return true;
+    default:
+        return false;
+    }
+}
+
 } // Anonymous namespace
 
 void Device::RemoveExtension(bool& extension, const std::string& extension_name) {
@@ -1662,18 +1688,6 @@ void Device::RemoveUnsuitableExtensions() {
     // The guest's own M=16 N=8 K=16 shape is preferred; without it, a 16x16x16 shape runs HMMA
     // through shared memory with the compute subgroups forced to 32 lanes.
     {
-        const auto shapes = physical.GetCooperativeMatrixPropertiesKHR();
-        const auto has_shape = [&](u32 columns) {
-            return std::ranges::any_of(shapes, [=](const VkCooperativeMatrixPropertiesKHR& shape) {
-                return shape.MSize == 16 && shape.NSize == columns && shape.KSize == 16 &&
-                       shape.AType == VK_COMPONENT_TYPE_FLOAT16_KHR &&
-                       shape.BType == VK_COMPONENT_TYPE_FLOAT16_KHR &&
-                       shape.CType == VK_COMPONENT_TYPE_FLOAT16_KHR &&
-                       shape.ResultType == VK_COMPONENT_TYPE_FLOAT16_KHR &&
-                       shape.saturatingAccumulation == VK_FALSE &&
-                       shape.scope == VK_SCOPE_SUBGROUP_KHR;
-            });
-        };
         // AMD's driver also advertises the extension on GPUs without matrix cores (GCN, RDNA1,
         // RDNA2) and crashes in amdvlk64.dll building these pipelines on RDNA2. RDNA3 brought
         // matrix cores together with accelerated mixed-signedness dot4, which the driver reports.
@@ -1687,7 +1701,34 @@ void Device::RemoveUnsuitableExtensions() {
                      "VK_KHR_cooperative_matrix is emulated on this AMD GPU: guest tensor "
                      "operations stay in shader emulation");
         }
+        const bool no_matrix_units = IsAmdWithoutMatrixUnits(properties.properties.vendorID,
+                                                             properties.properties.deviceID);
+        if (no_matrix_units && extensions.cooperative_matrix) {
+            LOG_INFO(Render_Vulkan, "Cooperative matrices off: AMD GPU without matrix units");
+        }
+        // EDEN_NX2_NO_COOP_MATRIX=1 keeps HMMA on the software path, for A/B runs and for drivers
+        // the checks above miss (#634: amdvlk64.dll crash on an RX 6900 XT).
+        const char* const no_coop_matrix = std::getenv("EDEN_NX2_NO_COOP_MATRIX");
+        const bool forced_off = no_coop_matrix != nullptr && *no_coop_matrix != '\0' &&
+                                std::string_view{no_coop_matrix} != "0";
+        if (forced_off && extensions.cooperative_matrix) {
+            LOG_INFO(Render_Vulkan, "Cooperative matrices off: EDEN_NX2_NO_COOP_MATRIX is set");
+        }
+        // amdvlk64.dll on Windows hangs or faults compiling Ocarina of Time's 16x16x16 HMMA
+        // pipelines even on RDNA 3.5 (Radeon 890M). Off there unless EDEN_NX2_COOP_MATRIX=1.
+        bool amd_windows_off = false;
+#ifdef _WIN32
+        if (driver_id == VK_DRIVER_ID_AMD_PROPRIETARY) {
+            const char* const coop_matrix = std::getenv("EDEN_NX2_COOP_MATRIX");
+            amd_windows_off = coop_matrix == nullptr || std::string_view{coop_matrix} != "1";
+            if (amd_windows_off && extensions.cooperative_matrix) {
+                LOG_INFO(Render_Vulkan, "Cooperative matrices off: AMD proprietary driver on "
+                                        "Windows (EDEN_NX2_COOP_MATRIX=1 enables them)");
+            }
+        }
+#endif
         const bool usable = extensions.cooperative_matrix && !emulated_amd_matrices &&
+                            !no_matrix_units && !forced_off && !amd_windows_off &&
                             features.cooperative_matrix.cooperativeMatrix &&
                             (properties.cooperative_matrix.cooperativeMatrixSupportedStages &
                              VK_SHADER_STAGE_COMPUTE_BIT) != 0 &&
@@ -1696,6 +1737,20 @@ void Device::RemoveUnsuitableExtensions() {
                             features.vulkan_memory_model.vulkanMemoryModelDeviceScope &&
                             extensions.subgroup_size_control &&
                             features.subgroup_size_control.computeFullSubgroups;
+        // Gated-off devices are not asked for their shapes.
+        const auto shapes = usable ? physical.GetCooperativeMatrixPropertiesKHR()
+                                   : std::vector<VkCooperativeMatrixPropertiesKHR>{};
+        const auto has_shape = [&](u32 columns) {
+            return std::ranges::any_of(shapes, [=](const VkCooperativeMatrixPropertiesKHR& shape) {
+                return shape.MSize == 16 && shape.NSize == columns && shape.KSize == 16 &&
+                       shape.AType == VK_COMPONENT_TYPE_FLOAT16_KHR &&
+                       shape.BType == VK_COMPONENT_TYPE_FLOAT16_KHR &&
+                       shape.CType == VK_COMPONENT_TYPE_FLOAT16_KHR &&
+                       shape.ResultType == VK_COMPONENT_TYPE_FLOAT16_KHR &&
+                       shape.saturatingAccumulation == VK_FALSE &&
+                       shape.scope == VK_SCOPE_SUBGROUP_KHR;
+            });
+        };
         cooperative_hmma_16x8x16 =
             usable && has_shape(8) &&
             (properties.subgroup_properties.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0 &&

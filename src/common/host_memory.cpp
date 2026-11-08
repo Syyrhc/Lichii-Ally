@@ -1033,6 +1033,20 @@ void HostMemory::ClearBackingRegion(size_t physical_offset, size_t length, u32 f
         return value == nullptr || value[0] != '0';
     }();
 #endif
+#ifdef _WIN32
+    // Windows 8.1+; EDEN_DISCARD_MEMORY=0 keeps the plain memset.
+    using DiscardVirtualMemoryFn = DWORD(WINAPI*)(PVOID, SIZE_T);
+    static const DiscardVirtualMemoryFn discard_virtual_memory = []() -> DiscardVirtualMemoryFn {
+        const char* value = std::getenv("EDEN_DISCARD_MEMORY");
+        if (value != nullptr && value[0] == '0') {
+            return nullptr;
+        }
+        const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+        return kernel32 != nullptr ? reinterpret_cast<DiscardVirtualMemoryFn>(
+                                         GetProcAddress(kernel32, "DiscardVirtualMemory"))
+                                   : nullptr;
+    }();
+#endif
     const size_t end = physical_offset + length;
     for (size_t offset = physical_offset; offset < end;) {
         const size_t index = offset >> GranuleShift;
@@ -1048,6 +1062,14 @@ void HostMemory::ClearBackingRegion(size_t physical_offset, size_t length, u32 f
             if (!cleared) {
                 std::memset(backing_base + offset, 0, clear_end - offset);
             }
+#ifdef _WIN32
+            // Windows has no hole punching for section memory: after zeroing a whole granule,
+            // DiscardVirtualMemory lets the system drop its pages without writing them to the
+            // page file. Whatever a discarded page reads back as, its last contents were zero.
+            if (whole && discard_virtual_memory != nullptr) {
+                discard_virtual_memory(backing_base + granule_begin, granule_end - granule_begin);
+            }
+#endif
             if (whole) {
                 granules[index].fetch_and(static_cast<u8>(~GranuleDirty), std::memory_order_release);
             }

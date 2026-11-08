@@ -42,6 +42,7 @@
 #include "video_core/memory_manager.h"
 #include "video_core/nx2_perf.h"
 #include "video_core/pipeline_cache_files.h"
+#include "video_core/pipeline_cache_policy.h"
 #include "video_core/renderer_vulkan/async_draw_policy.h"
 #include "video_core/renderer_vulkan/fixed_pipeline_state.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
@@ -1078,7 +1079,7 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipelineClean() {
     }
 
     TakeCleanSnapshot();
-    graphics_key.state.Refresh(*maxwell3d, dynamic_features);
+    RefreshGraphicsKey();
     if (current_pipeline) {
         GraphicsPipeline* const next{current_pipeline->Next(graphics_key)};
         if (next) {
@@ -1097,6 +1098,22 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipelineClean() {
     return result;
 }
 
+void PipelineCache::RefreshGraphicsKey() {
+    if (!dynamic_features.has_dynamic_vertex_input) {
+        graphics_key.state.Refresh(*maxwell3d, dynamic_features);
+        return;
+    }
+    // Refresh only rewrites the types when the vertex input changes, so the masked copy in the
+    // key must not carry over to the next programs. Types of attributes the programs don't read
+    // would split their pipelines by whatever the game left in those registers (Ocarina of Time:
+    // up to 20 keys for the same shaders, each built again on the GPU thread).
+    graphics_key.state.attribute_types = vertex_attribute_types;
+    graphics_key.state.Refresh(*maxwell3d, dynamic_features);
+    vertex_attribute_types = graphics_key.state.attribute_types;
+    graphics_key.state.attribute_types = VideoCommon::KeyedAttributeTypes(
+        vertex_attribute_types, graphics_key.unique_hashes, vertex_attribute_masks);
+}
+
 GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
     if (PipelineCleanEnabled()) {
         return CurrentGraphicsPipelineClean();
@@ -1106,7 +1123,7 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
         current_pipeline = nullptr;
         return nullptr;
     }
-    graphics_key.state.Refresh(*maxwell3d, dynamic_features);
+    RefreshGraphicsKey();
 
     if (current_pipeline) {
         GraphicsPipeline* const next{current_pipeline->Next(graphics_key)};
@@ -1295,9 +1312,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         }
     }
     constexpr std::array<char, 8> shader_magic{'y', 'u', 'z', 'u', 'c', 'a', 'c', 'h'};
-    // Versions 52 and 53 store the same records; only translation output changed since, and it is
-    // rebuilt at load. The newest one present is copied.
-    constexpr std::array<u32, 2> compatible_versions{53, 52};
+    // Versions 52, 53 and 54 store the same records; only translation output or key masking
+    // changed since, and it is rebuilt/masked at load. The newest one present is copied.
+    constexpr std::array<u32, 3> compatible_versions{54, 53, 52};
     for (const u32 version : compatible_versions) {
         if (VideoCommon::CopyCompatiblePipelineCache(
                 VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan", version),
@@ -1409,6 +1426,29 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             (key.state.dynamic_vertex_input != 0) !=
                 dynamic_features.has_dynamic_vertex_input) {
             return;
+        }
+
+        // Keys stored before they kept only the attribute types the programs read (and imported
+        // cache version 53 ones) are looked up masked. The pipeline is the same: a type is only
+        // dropped for an attribute no program reads. Records that now share a key are tried
+        // newest first, like those of a pipeline stored again.
+        if (key.state.dynamic_vertex_input != 0) {
+            std::array<u64, Maxwell::MaxShaderProgram> attribute_masks;
+            attribute_masks.fill(~u64{0});
+            size_t env_index = 0;
+            for (size_t stage = 0; stage < Maxwell::MaxShaderProgram; ++stage) {
+                if (key.unique_hashes[stage] != 0 && env_index < envs.size()) {
+                    attribute_masks[stage] = VideoCommon::VertexAttributeMaskOf(envs[env_index++]);
+                }
+            }
+            const u64 stored_hash = key.Hash();
+            key.state.attribute_types = VideoCommon::KeyedAttributeTypes(
+                key.state.attribute_types, key.unique_hashes, attribute_masks);
+            if (const auto used = used_pipelines.find(stored_hash); used != used_pipelines.end()) {
+                const u8 age = used->second;
+                const auto [entry, inserted] = used_pipelines.try_emplace(key.Hash(), age);
+                entry->second = (std::min)(entry->second, age);
+            }
         }
 
         const bool key_requests_provoking_last = key.state.provoking_vertex_last != 0;
@@ -1695,54 +1735,51 @@ void PipelineCache::EvictUnusedPipelines() {
         return;
     }
     // Only while the cache is large: each one evicted is translated again on the GPU thread when
-    // its place is revisited (~10 ms). Desktop dGPUs keep 8,000 (~3.6 GB); 24 GB+ handheld APUs
-    // (ROG Xbox Ally X) keep 6,000 (~2.7 GB); 16 GB APUs keep 3,500 (~1.5 GB).
+    // its place is revisited (~10 ms). Desktop dGPUs keep 8,000 (~3.6 GB); handheld APUs keep
+    // 3,500 (~1.5 GB) so driver pipeline memory stays within host RAM budgets.
+    // Past it only the excess goes, least recently used first (from zortos293/Lichii#408), so
+    // crossing it doesn't drop every stale pipeline at once.
     static const size_t env_evict_above = [] {
         const char* value = std::getenv("EDEN_NX2_PIPELINE_EVICT_ABOVE");
         return value != nullptr ? static_cast<size_t>(std::strtoull(value, nullptr, 10))
                                 : size_t{0};
     }();
-    const bool is_24gb_handheld =
-        (Common::GetMemInfo().TotalPhysicalMemory >= (21ULL << 30)) ||
-        (Common::GetMemInfo().TotalPhysicalMemory + device.GetDeviceLocalMemory() >= (21ULL << 30));
-    const size_t default_evict =
-        !device.IsIntegrated() ? size_t{8000} : (is_24gb_handheld ? size_t{6000} : size_t{3500});
+    const size_t default_evict = !device.IsIntegrated() ? size_t{8000} : size_t{3500};
     const size_t evict_above = env_evict_above != 0 ? env_evict_above : default_evict;
     if (graphics_cache.size() <= evict_above) {
         return;
     }
     const u64 cutoff = frame_count - EvictAfterFrames;
-    const u64 tick = scheduler.CurrentTick();
     // ~0.9 GB of driver memory at ~0.45 MB each.
     constexpr size_t MaxUnusedPrebuiltPipelines = 2000;
     size_t kept_prebuilt = 0;
-    size_t evicted = 0;
-    for (auto it = graphics_cache.begin(); it != graphics_cache.end();) {
-        GraphicsPipeline* const pipeline = it->second.get();
-        if (pipeline == nullptr || pipeline == current_pipeline || !pipeline->IsBuilt() ||
+    std::vector<std::pair<u64, GraphicsPipelineCacheKey>> candidates;
+    for (const auto& [key, pipeline] : graphics_cache) {
+        if (pipeline == nullptr || pipeline.get() == current_pipeline || !pipeline->IsBuilt() ||
             pipeline->LastUse() >= cutoff) {
-            ++it;
             continue;
         }
-        // A pipeline built from the disk cache at boot that no draw has used yet stays, up to a
-        // budget: evicting it throws the prebuild away, and the game translates it again on the
-        // GPU thread when it reaches that content (OoT: 1174 of 1346 evicted on the title screen,
-        // 684 rebuilt in 10 s on entering the field). Past the budget they go like the rest, so a
-        // large cache can't hold their driver memory for the whole session.
         if (!pipeline->WasUsed() && kept_prebuilt < MaxUnusedPrebuiltPipelines) {
             ++kept_prebuilt;
-            ++it;
             continue;
         }
-        if (used_this_session.erase(pipeline) != 0) {
+        candidates.emplace_back(pipeline->LastUse(), key);
+    }
+    const size_t evicted = VideoCommon::GraphicsPipelinesToEvict(graphics_cache.size(),
+                                                                 candidates.size(), evict_above);
+    if (evicted == 0) {
+        return;
+    }
+    std::nth_element(candidates.begin(), candidates.begin() + (evicted - 1), candidates.end(),
+                     [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+    const u64 tick = scheduler.CurrentTick();
+    for (size_t i = 0; i < evicted; ++i) {
+        const auto it = graphics_cache.find(candidates[i].second);
+        if (used_this_session.erase(it->second.get()) != 0) {
             used_and_evicted.insert(it->first.Hash());
         }
         evicted_pipelines.emplace_back(tick, std::move(it->second));
-        it = graphics_cache.erase(it);
-        ++evicted;
-    }
-    if (evicted == 0) {
-        return;
+        graphics_cache.erase(it);
     }
     for (auto& [key, pipeline] : graphics_cache) {
         if (pipeline) {
@@ -1942,6 +1979,25 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
 
         if (programs[index].info.requires_layer_emulation) {
             layer_source_program = &programs[index];
+        }
+        if (key.state.dynamic_vertex_input != 0 &&
+            programs[index].stage == Shader::Stage::VertexB) {
+            // The key dropped the types of attributes outside the input map: such a read now gets
+            // the default value (EDEN_NX2_KEY_ALL_ATTRIBUTES=1 keeps every type).
+            const u64 attribute_mask = VideoCommon::VertexAttributeMaskOf(env);
+            for (size_t attribute = 0; attribute < Shader::IR::NUM_GENERICS; ++attribute) {
+                if (programs[index].info.loads.Generic(attribute) &&
+                    ((attribute_mask >> (attribute * 2)) & 3) == 0) {
+                    static std::atomic<u32> warned{};
+                    if (warned.fetch_add(1, std::memory_order_relaxed) < 16) {
+                        LOG_WARNING(Render_Vulkan,
+                                    "Vertex program {:016x} reads attribute {} outside its input "
+                                    "map",
+                                    key.unique_hashes[index], attribute);
+                    }
+                    break;
+                }
+            }
         }
     }
     // A tessellation pipeline the driver would refuse is skipped like a missing mesh pipeline:
