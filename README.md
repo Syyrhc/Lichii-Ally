@@ -51,6 +51,9 @@ Performance verified on real handheld hardware running Windows 11 with **Lichii 
 |---|---|---|---|---|---|
 | **The Legend of Zelda: Ocarina of Time** | `0400486024DEC000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **40 FPS** *(cutscenes & interiors)* / **22-35 FPS** *(Kokiri Forest)* | Built-in Dynamic FPS and Max Resolution patches applied automatically |
 | **Pokemon Pokopia** | `0400A3A01EE4C000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **40-60 FPS** | Playable in-game with smooth frame pacing |
+| **Donkey Kong Bananza** | `040074A01BF12000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **12-30 FPS** | Verified on v2; dedicated optimizations and automatic per-game profiles planned for upcoming releases |
+
+> **Roadmap Note:** Upcoming versions of Lichii Ally will introduce automatic **Per-Game Optimization Profiles** (applying title-specific console mode, frame pacing, buffer preflushing, and shader/texture cache presets automatically based on Program ID).
 
 ### Submit Your Handheld Benchmark
 
