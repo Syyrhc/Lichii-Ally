@@ -149,8 +149,35 @@ public:
             return false;
         }
 
-        // Allocate backing file map
-        backing_handle = pfn_CreateFileMapping2(INVALID_HANDLE_VALUE, nullptr, FILE_MAP_WRITE | FILE_MAP_READ, PAGE_READWRITE, SEC_COMMIT, backing_size, nullptr, nullptr, 0);
+        // A private commit can grow a system-managed page file when SEC_COMMIT cannot.
+        constexpr int max_backing_attempts = 5;
+        for (int attempt = 1; attempt <= max_backing_attempts; ++attempt) {
+            backing_handle = pfn_CreateFileMapping2(
+                INVALID_HANDLE_VALUE, nullptr, FILE_MAP_WRITE | FILE_MAP_READ, PAGE_READWRITE,
+                SEC_COMMIT, backing_size, nullptr, nullptr, 0);
+            if (backing_handle) {
+                if (attempt > 1) {
+                    LOG_INFO(HW_Memory, "Allocated {} MiB of backing memory on attempt {}",
+                             backing_size >> 20, attempt);
+                }
+                break;
+            }
+
+            const DWORD error = GetLastError();
+            LOG_WARNING(HW_Memory,
+                        "Failed to allocate {} MiB of backing memory (attempt {}, error {})",
+                        backing_size >> 20, attempt, error);
+            if (attempt == max_backing_attempts ||
+                (error != ERROR_NO_SYSTEM_RESOURCES && error != ERROR_COMMITMENT_LIMIT &&
+                 error != ERROR_NOT_ENOUGH_MEMORY)) {
+                break;
+            }
+            if (void* const probe =
+                    VirtualAlloc(nullptr, backing_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)) {
+                VirtualFree(probe, 0, MEM_RELEASE);
+            }
+            Sleep(50);
+        }
         if (!backing_handle) {
             LOG_CRITICAL(HW_Memory, "Failed to allocate {} MiB of backing memory", backing_size >> 20);
             return false;

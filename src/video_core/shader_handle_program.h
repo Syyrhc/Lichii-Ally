@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <algorithm>
+#include <utility>
+
 #include "common/alignment.h"
 #include "common/common_types.h"
 #include "shader_recompiler/shader_info.h"
@@ -43,5 +46,22 @@ u32 EvaluateTextureHandle(const Shader::Info& info, u32 program, Tegra::MemoryMa
                })
         .value_or(0U);
 }
+
+// A per-invocation handle may fall back to the constant buffer word holding a storage address.
+// Binding the texture named by the low address bits causes flicker when that address changes.
+template <typename Descriptor>
+[[nodiscard]] bool HandleIsStoragePointer(const Shader::Info& info, const Descriptor& desc,
+                                          u32 index) {
+    if (desc.handle_program != ~0U || desc.has_secondary) {
+        return false;
+    }
+    const u32 offset = desc.cbuf_offset + (index << desc.size_shift);
+    return std::ranges::any_of(info.storage_buffers_descriptors, [&](const auto& storage) {
+        return storage.cbuf_index == desc.cbuf_index && offset >= storage.cbuf_offset &&
+               offset - storage.cbuf_offset < sizeof(u64);
+    });
+}
+
+inline constexpr std::pair<u32, u32> NULL_TEXTURE_HANDLE{~0U, ~0U};
 
 } // namespace VideoCommon

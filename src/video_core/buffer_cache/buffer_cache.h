@@ -145,10 +145,6 @@ void BufferCache<P>::TickFrame() {
     const bool skip_preferred = hits * 256 < shots * 251;
     channel_state->uniform_buffer_skip_cache_size = skip_preferred ? DEFAULT_SKIP_CACHE_SIZE : 0;
 
-    // If we can obtain the memory info, use it instead of the estimate.
-    if (runtime.CanReportMemoryUsage()) {
-        total_used_memory = runtime.GetDeviceMemoryUsage();
-    }
     if (gpu_memory != nullptr && gpu_memory->UsesNativeTiling()) {
         // Switch 2 titles fill the device with textures (their collector watches the budget);
         // title 1's buffers were ~200 MiB of an 8 GB GPU's ~6.8 GB in use, yet this collector
@@ -159,8 +155,14 @@ void BufferCache<P>::TickFrame() {
         if (buffer_bytes >= 512_MiB) {
             RunGarbageCollector(buffer_bytes >= 1_GiB);
         }
-    } else if (total_used_memory >= minimum_memory) {
-        RunGarbageCollector(total_used_memory >= critical_memory);
+    } else {
+        // Only the non-native collector uses the device-wide memory total.
+        if (runtime.CanReportMemoryUsage()) {
+            total_used_memory = runtime.GetDeviceMemoryUsage();
+        }
+        if (total_used_memory >= minimum_memory) {
+            RunGarbageCollector(total_used_memory >= critical_memory);
+        }
     }
     ++frame_tick;
     delayed_destruction_ring.Tick();

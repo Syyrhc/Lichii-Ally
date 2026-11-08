@@ -1272,43 +1272,29 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_binaries", CACHE_VERSION));
         pipeline_binaries_enabled = true;
     }
-    for (const char* const source_prefix : {"vulkan-frizti", "vulkan"}) {
-        std::error_code error;
-        const auto src_cache =
-            VideoCommon::VersionedPipelineCachePath(base_dir, source_prefix, CACHE_VERSION);
-        if (!std::filesystem::exists(pipeline_cache_filename, error) &&
-            std::filesystem::exists(src_cache, error)) {
-            std::filesystem::copy_file(src_cache, pipeline_cache_filename, error);
-            LOG_INFO(Render_Vulkan, "Copied pipeline cache {} to {}{}",
-                     Common::FS::PathToUTF8String(src_cache),
-                     Common::FS::PathToUTF8String(pipeline_cache_filename),
-                     error ? fmt::format(" (failed: {})", error.message()) : std::string{});
-        }
-    }
-    for (const char* const used_prefix : {"vulkan_used-frizti", "vulkan_used"}) {
-        std::error_code error;
-        const auto src_used =
-            VideoCommon::VersionedPipelineCachePath(base_dir, used_prefix, CACHE_VERSION);
-        if (!std::filesystem::exists(used_pipelines_filename, error) &&
-            std::filesystem::exists(src_used, error)) {
-            std::filesystem::copy_file(src_used, used_pipelines_filename, error);
-        }
-    }
     constexpr std::array<char, 8> shader_magic{'y', 'u', 'z', 'u', 'c', 'a', 'c', 'h'};
-    // Versions 52 and 53 store the same records; only translation output changed since, and it is
-    // rebuilt at load. The newest one present is copied.
-    constexpr std::array<u32, 2> compatible_versions{53, 52};
-    for (const u32 version : compatible_versions) {
-        if (VideoCommon::CopyCompatiblePipelineCache(
-                VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan", version),
+    const auto migrate_cache = [&](std::string_view source, std::string_view used, u32 version) {
+        if (!VideoCommon::CopyCompatiblePipelineCache(
+                VideoCommon::VersionedPipelineCachePath(base_dir, source, version),
                 pipeline_cache_filename, shader_magic, version, CACHE_VERSION)) {
-            LOG_INFO(Render_Vulkan, "Copied cache version {} pipeline cache to {}", version,
-                     Common::FS::PathToUTF8String(pipeline_cache_filename));
+            return false;
         }
         std::error_code migration_error;
         std::filesystem::copy_file(
-            VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_used", version),
+            VideoCommon::VersionedPipelineCachePath(base_dir, used, version),
             used_pipelines_filename, std::filesystem::copy_options::none, migration_error);
+        LOG_INFO(Render_Vulkan, "Copied {} version {} pipeline cache to {}", source, version,
+                 Common::FS::PathToUTF8String(pipeline_cache_filename));
+        return true;
+    };
+    // Mainline versions 52 through 54 use compatible guest shader records (Lichii #591).
+    constexpr std::array<u32, 3> compatible_versions{54, 53, 52};
+    if (!migrate_cache("vulkan-frizti", "vulkan_used-frizti", CACHE_VERSION)) {
+        for (const u32 version : compatible_versions) {
+            if (migrate_cache("vulkan", "vulkan_used", version)) {
+                break;
+            }
+        }
     }
     used_pipelines = LoadUsedPipelines(used_pipelines_filename, MaxUsedPipelineAge(device));
     used_pipelines_saved = std::chrono::steady_clock::now();
