@@ -462,6 +462,12 @@ public:
         }
     }
 
+    /// A new emulation session starts: the last one's fences may never have run.
+    void ClearDelayedReleases() {
+        std::scoped_lock lk{mutex};
+        delayed.clear();
+    }
+
 private:
     struct Waiter {
         const void* owner;
