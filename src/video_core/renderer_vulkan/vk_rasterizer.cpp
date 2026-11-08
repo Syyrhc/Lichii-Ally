@@ -1836,14 +1836,7 @@ bool RasterizerVulkan::MayBeGpuModified(DAddr addr, u64 size) {
     if (!Tegra::g_nx2_ampere.load(std::memory_order_relaxed) || size == 0) {
         return true;
     }
-    const DAddr last = addr + size - 1;
-    for (DAddr page = addr >> Tegra::Nx2WrittenPageBits; page <= (last >> Tegra::Nx2WrittenPageBits);
-         ++page) {
-        if (Tegra::Nx2IsGpuWritten(page << Tegra::Nx2WrittenPageBits)) {
-            return true;
-        }
-    }
-    return false;
+    return Tegra::Nx2MayBeGpuWritten(addr, size);
 }
 
 bool RasterizerVulkan::HasPendingQueries(DAddr addr, u64 size) {
