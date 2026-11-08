@@ -282,10 +282,16 @@ void QueryCacheBase<Traits>::CounterReport(GPUVAddr addr, QueryType counter_type
     };
     u8* pointer = impl->device_memory.template GetPointer<u8>(cpu_addr);
     u8* pointer_timestamp = impl->device_memory.template GetPointer<u8>(cpu_addr + 8);
-    bool is_synced = (Settings::IsGPUFenceBehaviorDefault() ? !Settings::IsGPULevelHigh() : !Settings::IsGPUFenceBehaviorBalanced() && !Settings::IsGPUFenceBehaviorAccurate()) && is_fence;
+    const bool is_synced = (Settings::IsGPUFenceBehaviorDefault() ? !Settings::IsGPULevelHigh() : !Settings::IsGPUFenceBehaviorBalanced() && !Settings::IsGPUFenceBehaviorAccurate()) && is_fence;
+    const bool delayed_release = is_fence && counter_type == QueryType::Payload &&
+                                 (Settings::IsGPUFenceBehaviorDefault()
+                                      ? !Settings::IsGPULevelHigh()
+                                      : !Settings::IsGPUFenceBehaviorBalanced() &&
+                                            !Settings::IsGPUFenceBehaviorAccurate());
     std::function<void()> operation([this, is_synced, streamer, query_base = query, query_location,
                                      pointer, pointer_timestamp, cpu_addr, addr,
-                                     asid = gpu_memory->GetID(), counter_type] {
+                                     asid = gpu_memory->GetID(), counter_type, delayed_release,
+                                     payload] {
         struct Settle {
             DAddr address;
             ~Settle() {
@@ -293,6 +299,11 @@ void QueryCacheBase<Traits>::CounterReport(GPUVAddr addr, QueryType counter_type
                     1, std::memory_order_release);
             }
         } const settle{cpu_addr};
+        SCOPE_EXIT {
+            if (delayed_release) {
+                Tegra::Nx2SemaphoreWaiters::Get().OnDelayedReleaseDone(cpu_addr, payload);
+            }
+        };
         if (True(query_base->flags & QueryFlagBits::IsInvalidated)) {
             if (const u64 trace = QueryTrace::Sample(QueryTrace::Event::Discard)) {
                 LOG_INFO(HW_GPU,
@@ -348,7 +359,12 @@ void QueryCacheBase<Traits>::CounterReport(GPUVAddr addr, QueryType counter_type
     if (is_fence) {
         Tegra::g_nx2_async_reports_issued[Tegra::Nx2AsyncReportSlot(cpu_addr)].fetch_add(
             1, std::memory_order_release);
+        if (delayed_release) {
+            Tegra::Nx2SemaphoreWaiters::Get().OnDelayedRelease(cpu_addr, payload);
+        }
+        VideoCore::g_signaling_query_report_fence = true;
         impl->rasterizer.SignalFence(std::move(operation));
+        VideoCore::g_signaling_query_report_fence = false;
     } else {
         if (!Settings::IsGPULevelHigh() && counter_type == QueryType::Payload) {
             if (has_timestamp) {
