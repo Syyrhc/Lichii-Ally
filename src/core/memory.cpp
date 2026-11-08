@@ -969,24 +969,13 @@ struct Memory::Impl {
     };
 
     void InvalidateGPUMemory(u8* p, size_t size) {
-        constexpr size_t sys_core = Core::Hardware::NUM_CPU_CORES - 1;
-        const size_t core = (std::min)(system.GetCurrentHostThreadID(),
-                                     sys_core); // any other calls threads go to syscore.
         if (!gpu_device_memory) [[unlikely]] {
             gpu_device_memory = &system.Host1x().MemoryManager();
         }
-        // Guard on sys_core;
-        if (core == sys_core) [[unlikely]] {
-            sys_core_guard.lock();
-        }
-        SCOPE_EXIT {
-            if (core == sys_core) [[unlikely]] {
-                sys_core_guard.unlock();
-            }
-        };
+        Common::ScratchBuffer<u32> scratch;
         auto& gpu = system.GPU();
         gpu_device_memory->ApplyOpOnPointer(
-            p, scratch_buffers[core], [&](DAddr address) { gpu.InvalidateRegion(address, size, true); });
+            p, scratch, [&](DAddr address) { gpu.InvalidateRegion(address, size, true); });
     }
 
     Core::System& system;
