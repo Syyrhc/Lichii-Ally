@@ -1676,6 +1676,8 @@ void MainWindow::AutoBindFirstControllerIfDefault() {
         controller->SaveCurrentConfig();
     }
 
+    Settings::values.use_docked_mode.SetValue(Settings::ConsoleMode::Handheld);
+    UpdateDockedButton();
     OnSaveConfig();
 }
 

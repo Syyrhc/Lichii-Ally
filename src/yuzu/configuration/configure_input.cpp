@@ -278,8 +278,8 @@ void ConfigureInput::RestoreDefaults() {
     auto* player_tab = static_cast<ConfigureInputPlayer*>(ui->consoleInputSettings->parent());
     player_tab->RestoreDefaults();
 
-    ui->radioDocked->setChecked(true);
-    ui->radioUndocked->setChecked(false);
+    ui->radioDocked->setChecked(false);
+    ui->radioUndocked->setChecked(true);
     ui->vibrationGroup->setChecked(true);
     ui->motionGroup->setChecked(true);
 }
