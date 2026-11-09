@@ -39,7 +39,17 @@ echo [SUCCESS] GameDVR background recording disabled.
 
 echo.
 echo ---------------------------------------------------------------------
-echo 3. Setting Windows High Performance GPU Preference for Lichii
+echo 3. Disabling Windows Widgets & Edge Background Tasks
+echo ---------------------------------------------------------------------
+echo Windows Widgets and Edge background webviews consume 500 MB - 1 GB RAM.
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v "TaskbarDa" /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKCU\Software\Policies\Microsoft\Edge" /v "BackgroundModeEnabled" /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v "BackgroundModeEnabled" /t REG_DWORD /d 0 /f >nul 2>&1
+echo [SUCCESS] Widgets and Edge background processes disabled.
+
+echo.
+echo ---------------------------------------------------------------------
+echo 4. Setting Windows High Performance GPU Preference for Lichii
 echo ---------------------------------------------------------------------
 set "LICHII_EXE=%~dp0lichii.exe"
 if exist "%LICHII_EXE%" (
@@ -76,3 +86,4 @@ echo Configuration complete! Restart your ROG Ally X to apply VRAM changes.
 echo =====================================================================
 echo.
 pause
+
