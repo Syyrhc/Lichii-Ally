@@ -110,7 +110,11 @@ public:
 
     u64 GetDeviceMemorySlack() const;
 
-    bool CanReportMemoryUsage() const;
+    [[nodiscard]] bool CanReportMemoryUsage() const;
+
+    [[nodiscard]] bool IsIntegrated() const noexcept {
+        return device.IsIntegrated();
+    }
 
     /// Images that did not fit the device memory budget so far (see MemoryAllocator).
     u32 MemoryPressureEvents() const noexcept {
