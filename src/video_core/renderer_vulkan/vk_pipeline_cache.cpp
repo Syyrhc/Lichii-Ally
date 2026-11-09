@@ -1282,11 +1282,30 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_used-ally", CACHE_VERSION);
     // NVIDIA's driver already keeps every pipeline in its own disk cache, so saving binaries
     // there would only duplicate it.
+    constexpr std::array<u32, 3> compatible_versions{54, 53, 52};
     if (Settings::values.use_vulkan_pipeline_binaries.GetValue() &&
         device.IsKhrPipelineBinarySupported() &&
         device.GetDriverID() != VK_DRIVER_ID_NVIDIA_PROPRIETARY) {
-        device.GetLogical().EnablePipelineBinaryCache(
-            VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_binaries", CACHE_VERSION));
+        const auto binaries_path =
+            VideoCommon::VersionedPipelineCachePath(base_dir, "vulkan_binaries", CACHE_VERSION);
+        std::error_code error;
+        if (!std::filesystem::exists(binaries_path, error)) {
+            for (const u32 older_version : compatible_versions) {
+                if (older_version == CACHE_VERSION) {
+                    continue;
+                }
+                const auto older_binaries = VideoCommon::VersionedPipelineCachePath(
+                    base_dir, "vulkan_binaries", older_version);
+                if (std::filesystem::is_regular_file(older_binaries, error)) {
+                    std::filesystem::copy_file(older_binaries, binaries_path, error);
+                    if (!error) {
+                        LOG_INFO(Render_Vulkan, "Carried over older pipeline binaries from v{}", older_version);
+                        break;
+                    }
+                }
+            }
+        }
+        device.GetLogical().EnablePipelineBinaryCache(binaries_path);
         pipeline_binaries_enabled = true;
     }
     constexpr std::array<char, 8> shader_magic{'y', 'u', 'z', 'u', 'c', 'a', 'c', 'h'};
@@ -1305,10 +1324,10 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         return true;
     };
     // Mainline versions 52 through 54 use compatible guest shader records (Lichii #591).
-    constexpr std::array<u32, 3> compatible_versions{54, 53, 52};
     if (!migrate_cache("vulkan-frizti", "vulkan_used-frizti", CACHE_VERSION)) {
         for (const u32 version : compatible_versions) {
-            if (migrate_cache("vulkan", "vulkan_used", version)) {
+            if (migrate_cache("vulkan-ally", "vulkan_used-ally", version) ||
+                migrate_cache("vulkan", "vulkan_used", version)) {
                 break;
             }
         }
@@ -1810,9 +1829,10 @@ GraphicsPipeline* PipelineCache::BuiltPipeline(GraphicsPipeline* pipeline) noexc
     }
     static const bool discard_native = [] {
         const char* value = std::getenv("EDEN_NX2_ASYNC_DISCARD");
-        const bool enabled = value == nullptr || value[0] != '0';
-        LOG_INFO(Render_Vulkan, "EDEN_NX2_ASYNC_DISCARD: native draws {} unbuilt pipelines",
-                 enabled ? "skip" : "wait for");
+        const bool enabled = value != nullptr && value[0] == '1';
+        if (enabled) {
+            LOG_INFO(Render_Vulkan, "EDEN_NX2_ASYNC_DISCARD: native draws skip unbuilt pipelines");
+        }
         return enabled;
     }();
     const auto& draw_state = maxwell3d->draw_manager.draw_state;

@@ -627,7 +627,7 @@ struct Values {
         Specialization::Default};
 
     SwitchableSetting<NativeAsyncDraws> native_async_draws{linkage,
-                                                           NativeAsyncDraws::Skip,
+                                                           NativeAsyncDraws::Wait,
                                                            "native_async_draws",
                                                            Category::RendererAdvanced,
                                                            Specialization::Default,

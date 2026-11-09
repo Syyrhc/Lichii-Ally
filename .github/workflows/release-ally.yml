@@ -327,14 +327,14 @@ jobs:
           3. All handheld optimizations - \`clang-cl\` 22 ThinLTO + PGO, Windows 11 hybrid CPU thread scheduling, UMA-safe memory and BC3 texture cache management, automatic DLSS to AMD FSR 3.1 replacement, Borderless Windowed Fullscreen, and **40 FPS** 120 Hz VRR Genlock - are enabled out of the box.
 
           ### What's New in ${VERSION_LABEL}
+          - **Fix Black Screen on Cold Boot & Restore Native Draw Waiting:** Resolves the issue where unbuilt native Switch 2 pipelines skipped initial draws (causing 18 FPS black screens and missing menus). Restores synchronous pipeline waiting (`native_async_draws: Wait`) and gates experimental `EDEN_NX2_ASYNC_DISCARD` strictly to explicit opt-in.
+          - **Seamless Vulkan Pipeline Cache Migration (v54 / v53 / v52):** Bumps cache version to v54 and automatically detects, carries over, and reuses precompiled pipeline binary caches from upstream builds (Zortos build 88/127) and earlier Ally builds so shaders never rebuild from scratch.
+          - **Async Pipeline Worker Stability:** Restores `Opt::AsyncPipelines` to safe default-off behavior, preventing background compilation race conditions on AMD proprietary Windows drivers (`amdvlk64.dll`).
+          - **Safe Memory Discarding:** Gated `DiscardVirtualMemory` strictly behind `EDEN_DISCARD_MEMORY=1` to prevent Windows memory manager `ERROR_INVALID_PARAMETER` on section views.
           - **Deku Tree Cutscene & Channel Semaphore Stall Fix:** Latches fence-delayed semaphore releases before write completion so GPU channel handoffs in *Ocarina of Time* never deadlock or stall waiting on host GPU round trips.
           - **On-Demand NUP ZSTD Streaming Decompression:** Streams and decodes container assets incrementally on demand instead of loading and decompressing entire multi-hundred megabyte audio and cutscene archives into RAM at once.
-          - **Windows Physical RAM Reclaiming (\`DiscardVirtualMemory\`):** Reclaims physical RAM commit back to Windows OS immediately when guest granules are zeroed, saving 1.5 GB to 3 GB of system RAM during save loads and scene transitions.
           - **APU Conservative Texture Cache Budget:** Caps the texture cache in Conservative mode to 1536 MiB expected / 2048 MiB critical on integrated GPUs (Radeon 890M), preventing Kokiri Forest from choking the 17.6 GB Windows host RAM limit.
-          - **Safe Memory Allocation & Unbacked Fallback Safeguard:** Intercepts out-of-memory allocations cleanly instead of throwing or falling back to unbacked sparse images that cause \`amdvlk64.dll\` driver crashes.
-          - **Compute IR Pool Memory Freeing:** Frees compute IR allocations before synchronous driver compilation to prevent memory climbing during pipeline generation.
           - **Dynamic Resolution Scaling (DRS) Bilinear Neural Bypass:** Scales tonemapped frames bilinearly in *Ocarina of Time* across all dynamic resolutions (1440x810, 1120x630, 1024x576), cleanly skipping heavy Tensor Core neural network shaders.
-          - **AMD Cooperative Matrix Windows Driver Gate:** Disables buggy \`VK_KHR_cooperative_matrix\` on AMD Windows proprietary drivers (\`amdvlk64.dll\`) by default to prevent driver compilation crashes and hangs.
 
           ### Recommended System Settings (ASUS ROG Xbox Ally X)
           - **Armoury Crate SE VRAM:** **8 GB** (leaves 16 GB free for Windows, JIT, and shader compilation).

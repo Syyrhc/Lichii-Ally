@@ -58,3 +58,4 @@ Open AMD Software: Adrenalin Edition, select the `lichii.exe` profile, and apply
 * **Anti-Aliasing:** `No sharpening` (fastest performance in foliage-heavy areas like Kokiri Forest).
 * **Target Frame Rate:** `40 FPS` for handheld play or `60 FPS` when plugged in.
 * **Max Resolution (built-in):** `Disabled` (allows Dynamic Resolution Scaling to reduce GPU load).
+

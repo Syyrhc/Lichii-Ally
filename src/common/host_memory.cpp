@@ -1061,11 +1061,11 @@ void HostMemory::ClearBackingRegion(size_t physical_offset, size_t length, u32 f
     }();
 #endif
 #ifdef _WIN32
-    // Windows 8.1+; EDEN_DISCARD_MEMORY=0 keeps the plain memset.
+    // Windows 8.1+; EDEN_DISCARD_MEMORY=1 enables DiscardVirtualMemory (defaults off).
     using DiscardVirtualMemoryFn = DWORD(WINAPI*)(PVOID, SIZE_T);
     static const DiscardVirtualMemoryFn discard_virtual_memory = []() -> DiscardVirtualMemoryFn {
         const char* value = std::getenv("EDEN_DISCARD_MEMORY");
-        if (value != nullptr && value[0] == '0') {
+        if (value == nullptr || value[0] != '1') {
             return nullptr;
         }
         const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
