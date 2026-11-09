@@ -45,11 +45,11 @@ Download the archive matching your processor architecture from the [Releases pag
 
 ## Handheld Game Performance and Compatibility
 
-Performance verified on real handheld hardware running Windows 11 with **Lichii Ally v2** (`Xbox-Ally-X-AVX512` build, Docked mode, Vulkan backend):
+Performance verified on real handheld hardware running Windows 11 with **Lichii Ally v5** (`Xbox-Ally-X-AVX512` build, Handheld mode, Vulkan backend):
 
 | Game Title | Program ID | Tested Handheld | Processor / GPU / RAM | Verified Frame Rate | Notes |
 |---|---|---|---|---|---|
-| **The Legend of Zelda: Ocarina of Time** | `0400486024DEC000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **40 FPS** *(cutscenes & interiors)* / **22-35 FPS** *(Kokiri Forest)* | Built-in Dynamic FPS and Max Resolution patches applied automatically |
+| **The Legend of Zelda: Ocarina of Time** | `0400486024DEC000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **60 FPS** *(intro & cutscenes)* / **40 FPS** *(Kokiri Forest & gameplay)* | Built-in Dynamic FPS, DRS bilinear neural bypass, and physical RAM release applied automatically |
 | **Pokemon Pokopia** | `0400A3A01EE4C000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **40-60 FPS** | Playable in-game with smooth frame pacing |
 | **Donkey Kong Bananza** | `040074A01BF12000` | ASUS ROG Xbox Ally X | Ryzen AI Z2 Extreme / Radeon 890M / 24 GB | **12-30 FPS** | Verified on v2; dedicated optimizations and automatic per-game profiles planned for upcoming releases |
 

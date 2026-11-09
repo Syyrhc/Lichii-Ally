@@ -478,6 +478,11 @@ void TextureCache<P>::ApplyThresholdOverrides(bool log) {
             budget_expected = (std::min)(budget_expected, budget_critical);
         }
     }
+    if (Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Conservative) {
+        max_critical = (std::min)(max_critical, u64{2048_MiB});
+        budget_critical = (std::min)(budget_critical, u64{2048_MiB});
+        budget_expected = (std::min)(budget_expected, u64{1536_MiB});
+    }
     critical_memory = (std::min)(budget_critical, max_critical);
     expected_memory =
         (std::min)(budget_expected, critical_memory - (std::min)(critical_memory, u64{768_MiB}));
