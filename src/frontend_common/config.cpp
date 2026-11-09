@@ -341,6 +341,9 @@ void Config::ReadDisabledAddOnValues() {
     }
     EndArray(); // Base disabled addons array - Has no base key
 
+    // Keep Ocarina of Time's dynamic resolution for titles with no saved add-on settings.
+    Settings::values.disabled_addons.try_emplace(
+        0x0400486024DEC000ULL, std::vector<std::string>{"Max Resolution (built-in)"});
     EndGroup();
 }
 

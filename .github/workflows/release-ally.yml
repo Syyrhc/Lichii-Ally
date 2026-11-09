@@ -5,14 +5,16 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Release tag (e.g. ally-v1)
+        description: Release tag (defaults to the version in dist/ally_version.txt)
         type: string
-        default: ally-v1
+        default: ""
       publish_release:
         description: Publish the binaries as a GitHub Release
         type: boolean
         default: true
   push:
+    branches:
+      - "codex/ally-*"
     tags:
       - "ally-v*"
 
@@ -55,16 +57,16 @@ jobs:
             tag="${GITHUB_REF_NAME}"
             should_publish="true"
           else
-            tag="${INPUT_TAG:-ally-v1}"
-            should_publish="${INPUT_PUBLISH:-true}"
+            ally_num="$(tr -d '[:space:]' < dist/ally_version.txt)"
+            tag="${INPUT_TAG:-ally-v${ally_num}}"
+            should_publish="${INPUT_PUBLISH:-false}"
           fi
 
-          if [[ "$tag" =~ ^ally-(v.+)$ ]]; then
-            version_label="${BASH_REMATCH[1]}"
-          else
-            ally_num="$(tr -d '[:space:]' < dist/ally_version.txt)"
-            version_label="v${ally_num}"
+          if [[ ! "$tag" =~ ^ally-v([1-9][0-9]*)$ ]]; then
+            echo "Invalid Ally release tag: $tag" >&2
+            exit 1
           fi
+          version_label="v${BASH_REMATCH[1]}"
 
           if [[ "$should_publish" == "true" && "${GITHUB_REF}" != refs/tags/* ]]; then
             if ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$tag" >/dev/null 2>&1; then
@@ -97,6 +99,12 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v5
+
+      - name: Synchronize application version with release tag
+        shell: bash
+        env:
+          VERSION_LABEL: ${{ needs.prepare-release.outputs.version_label }}
+        run: printf '%s\n' "${VERSION_LABEL#v}" > dist/ally_version.txt
 
       - name: Verify Windows PGO profile
         shell: bash
@@ -319,10 +327,10 @@ jobs:
           3. All handheld optimizations - \`clang-cl\` 22 ThinLTO + PGO, Windows 11 hybrid CPU thread scheduling, UMA-safe memory and BC3 texture cache management, automatic DLSS to AMD FSR 3.1 replacement, Borderless Windowed Fullscreen, and **40 FPS** 120 Hz VRR Genlock - are enabled out of the box.
 
           ### What's New in ${VERSION_LABEL}
-          - **Persistent AMD Compiled Shader Binary Cache (\`VK_KHR_pipeline_binary\`) & Cross-Driver Shader Pack Support** *(ported from [CheezerWheezer/Lichii](https://github.com/CheezerWheezer/Lichii))*: Saves compiled AMD RDNA ISA pipeline binaries to disk (\`vulkan_binaries.fork-v54.bin\`) because AMD's Windows Vulkan driver does not persist compiled pipelines between sessions, cutting *Ocarina of Time* boot compilation time from minutes to seconds (\`0.2-0.4 ms\` per pipeline) and automatically accepting shared shader caches built on NVIDIA or other GPUs.
-          - **Ocarina of Time CPU-Read Page Preflushing & Non-Blocking Native Async Draws** *(ported from [conongnang/Lichii](https://github.com/conongnang/Lichii) and upstream \`nx2\`)*: Preflushes *Ocarina of Time*'s ~200 CPU-read GPU pages per second at fences instead of stalling on synchronous read traps, skips unbuilt Switch 2 graphics pipelines asynchronously (\`NativeAsyncDraws::Skip\`) to eliminate multi-second scene-transition freezes, and defaults *Ocarina of Time* anti-aliasing to \`No sharpening\` (+20% FPS in Kokiri Forest).
-          - **Texture Cache, ASTC Upload, Render-Pass Continuation & Hybrid CPU Fix** *(ported from [conongnang/Lichii](https://github.com/conongnang/Lichii) and upstream \`nx2\`)*: Skips uploading stale guest memory into newly recreated GPU-written images (+20% FPS in Castle Town), skips unchanged texture alias walks (+7% GPU back-thread speedup in Donkey Kong Bananza and Switch 2 open maps), continues active Vulkan render passes across deferred clear variants (saving ~118 MB of attachment traffic per turn), coalesces adjacent device page flushes, and lets time-critical threads use all 16 logical processors (\`3x Zen 5 + 5x Zen 5c\`) on the ROG Xbox Ally X while steering background shader workers to \`Zen 5c\` efficiency cores.
-          - **Default Handheld Console Mode (\`HANDHELD\`), Clean \`Xbox 360 Controller 0\` Auto-Bind & Shutdown Fix**: Defaults to Handheld Console Mode for 20-35% higher FPS and lower VRAM use on the ROG Xbox Ally X, binds \`Xbox 360 Controller 0\` cleanly in \`Controls - Input device\`, and releases Switch 2 guest RAM cleanly on game exit without deadlocking.
+          - **Windows handhelds:** retries the fastmem mapping under commit pressure ([#645](https://github.com/zortos293/Lichii/pull/645)) and avoids long GPU polling sleeps when a channel can make progress ([#621](https://github.com/zortos293/Lichii/pull/621)).
+          - **Shared memory and Vulkan:** texture thresholds follow the driver budget, native buffer collection avoids querying device-wide usage every frame, and only eligible devices query hardware cooperative-matrix shapes ([#614](https://github.com/zortos293/Lichii/pull/614)). Set EDEN_NX2_NO_COOP_MATRIX=1 to test the software path on a driver that stalls.
+          - **Shader caches:** imports compatible guest shader caches from mainline v54, v53, and v52 when an Ally cache is absent ([#591](https://github.com/zortos293/Lichii/pull/591)).
+          - **Ocarina of Time:** keeps dynamic resolution for fresh settings, supports scaling in the existing No sharpening path, and includes Fritchii's water texture fix ([#778](https://github.com/zortos293/Lichii/pull/778)). Set EDEN_NX2_OCCLUSION_OFF=1 to try the optional occlusion patch ([#641](https://github.com/zortos293/Lichii/pull/641)).
 
           ### Recommended System Settings (ASUS ROG Xbox Ally X)
           - **Armoury Crate SE VRAM:** **8 GB** (leaves 16 GB free for Windows, JIT, and shader compilation).

@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <string_view>
 #include <thread>
 #include "common/container/unordered_map.h"
 #include "common/container/unordered_set.h"
@@ -1737,7 +1738,7 @@ void Device::RemoveUnsuitableExtensions() {
                             features.vulkan_memory_model.vulkanMemoryModelDeviceScope &&
                             extensions.subgroup_size_control &&
                             features.subgroup_size_control.computeFullSubgroups;
-        // Gated-off devices are not asked for their shapes.
+        // Devices using software HMMA never enter the driver's cooperative matrix code.
         const auto shapes = usable ? physical.GetCooperativeMatrixPropertiesKHR()
                                    : std::vector<VkCooperativeMatrixPropertiesKHR>{};
         const auto has_shape = [&](u32 columns) {

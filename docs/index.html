@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Find a Lichii build that fits your GPU, operating system, and device." data-i18n-content="description">
+  <meta name="theme-color" content="#122724">
+  <title data-i18n="pageTitle">Lichii Build Selector</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./translations.js" defer></script>
+  <script src="./releases.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="./index.html">
+        <span class="brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 7h6m2 0h6M5 12h2m4 0h8M5 17h9m4 0h1M11 5v4M7 10v4m7 1v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </span>
+        Lichii <span>Build Selector</span>
+      </a>
+      <div class="header-actions">
+        <a class="nav-link" href="#builds"><span data-i18n="compareBuilds">Compare builds</span> <span aria-hidden="true">↓</span></a>
+        <div class="languages" role="group" aria-label="Language" data-i18n-aria-label="language">
+          <button type="button" data-language="en" lang="en" aria-label="English (US)" title="English (US)" aria-pressed="true">
+            <svg viewBox="0 0 30 20" aria-hidden="true">
+              <rect width="30" height="20" fill="#fff"/>
+              <path d="M0 .77h30M0 3.85h30M0 6.92h30M0 10h30M0 13.08h30M0 16.15h30M0 19.23h30" stroke="#b31942" stroke-width="1.54"/>
+              <path d="M0 0h12v10.77H0z" fill="#0a3161"/>
+              <path d="M1.2 1.2h.01m2.4 0h.01m2.4 0h.01m2.4 0h.01m2.4 0h.01M2.4 3.3h.01m2.4 0h.01m2.4 0h.01m2.4 0h.01M1.2 5.4h.01m2.4 0h.01m2.4 0h.01m2.4 0h.01m2.4 0h.01M2.4 7.5h.01m2.4 0h.01m2.4 0h.01m2.4 0h.01M1.2 9.6h.01m2.4 0h.01m2.4 0h.01m2.4 0h.01m2.4 0h.01" stroke="#fff" stroke-width=".7" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button type="button" data-language="pt-BR" lang="pt-BR" aria-label="Português (Brasil)" title="Português (Brasil)" aria-pressed="false">
+            <svg viewBox="0 0 30 20" aria-hidden="true">
+              <rect width="30" height="20" fill="#009739"/>
+              <path d="M3.5 10 15 2.5 26.5 10 15 17.5Z" fill="#fedd00"/>
+              <circle cx="15" cy="10" r="4.6" fill="#002776"/>
+              <path d="M10.5 9.1c3.2-.6 6.5.3 8.5 2.6l-.5 1c-2.3-2.2-5.2-3.1-8.2-2.6Z" fill="#fff"/>
+              <path d="M12.7 11.8h.01m1.9.9h.01m1.8-4.7h.01m.6 5.1h.01" stroke="#fff" stroke-width=".5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero" aria-labelledby="title">
+      <div class="hero-content">
+        <p class="eyebrow"><span class="signal" aria-hidden="true"></span> <span data-i18n="downloadGuide">DOWNLOAD GUIDE</span></p>
+        <h1 id="title"><span data-i18n="heroLine1">Which Lichii build</span><br class="hero-break"> <span data-i18n="heroLine2">fits your setup?</span></h1>
+        <p data-i18n="heroDescription">Start with your GPU or device name. Add your operating system, processor, or RAM if you know them.</p>
+      </div>
+      <svg class="hero-art" viewBox="0 0 420 240" fill="none" aria-hidden="true">
+        <defs>
+          <pattern id="grid" width="18" height="18" patternUnits="userSpaceOnUse">
+            <path d="M18 0H0v18" stroke="#48766b" stroke-width="1" opacity=".42"/>
+          </pattern>
+          <linearGradient id="fade"><stop stop-color="white" stop-opacity="0"/><stop offset=".35" stop-color="white"/></linearGradient>
+          <mask id="fade-grid"><rect width="420" height="240" fill="url(#fade)"/></mask>
+        </defs>
+        <rect width="420" height="240" fill="url(#grid)" mask="url(#fade-grid)"/>
+        <path d="M72 45h78l20 20h30m116 100h35l20-20h47M42 177h54l13-13h30m151-111h35l20-20h70" stroke="#558478" stroke-dasharray="3 5"/>
+        <path d="M104 77h18m-9-9v18m252 93h18m-9-9v18m-19-116h12m-6-6v12" stroke="#5d9886"/>
+        <rect x="130" y="75" width="224" height="100" rx="28" fill="#1e3a32" stroke="#82b6a6" stroke-width="2"/>
+        <rect x="179" y="89" width="126" height="72" rx="8" fill="#112522" stroke="#719d90" stroke-width="2"/>
+        <path d="M192 145h25l14-22h18l15-18h27" stroke="#bcf5a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="231" cy="123" r="3" fill="#bcf5a6"/>
+        <circle cx="264" cy="105" r="3" fill="#bcf5a6"/>
+        <circle cx="155" cy="104" r="9" fill="#152b26" stroke="#82b6a6"/>
+        <path d="M155 131v16m-8-8h16" stroke="#a6c9bd" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="329" cy="106" r="9" fill="#152b26" stroke="#82b6a6"/>
+        <path d="M329 130h.01m8 8h.01m-8 8h.01m-8-8h.01" stroke="#b8efab" stroke-width="4" stroke-linecap="round"/>
+        <path d="M153 193h178m-178-4v8m178-8v8" stroke="#639889" opacity=".8"/>
+      </svg>
+    </section>
+
+    <div class="workspace">
+      <section class="panel input-panel" aria-labelledby="hardware-title">
+        <p class="eyebrow section-label"><span>01</span> <span data-i18n="hardwareSection">YOUR HARDWARE</span></p>
+        <h2 id="hardware-title" data-i18n="hardwareTitle">What are you using?</h2>
+        <form id="selector">
+          <label for="hardware" data-i18n="hardwareLabel">GPU, processor, or device</label>
+          <input id="hardware" name="hardware" type="text" maxlength="160" autocomplete="off" spellcheck="false" placeholder="e.g. AMD, RTX 4070, Ryzen Z2 Extreme" data-i18n-placeholder="hardwarePlaceholder" aria-describedby="hardware-help">
+          <p class="input-help" id="hardware-help" data-i18n="hardwareHelp">One detail is enough to get started.</p>
+          <div class="presets" role="group" aria-label="Hardware examples" data-i18n-aria-label="hardwareExamples">
+            <button type="button" data-profile="AMD" aria-pressed="false">AMD</button>
+            <button type="button" data-profile="NVIDIA" aria-pressed="false">NVIDIA</button>
+            <button type="button" data-profile="Intel Arc" aria-pressed="false">Intel Arc</button>
+            <button type="button" data-profile="ROG Xbox Ally X" aria-pressed="false">ROG Xbox Ally X</button>
+            <button type="button" data-profile="Steam Deck" aria-pressed="false">Steam Deck</button>
+          </div>
+
+          <details class="refine">
+            <summary><span data-i18n="refine">Refine recommendation</span> <span class="summary-hint" data-i18n="optional">optional</span></summary>
+            <div class="fields">
+              <label for="system"><span data-i18n="systemLabel">Operating system</span>
+                <select id="system" name="system">
+                  <option value="" data-i18n="unknown">Not specified</option>
+                  <option value="windows">Windows x64</option>
+                  <option value="linux">Linux / SteamOS x64</option>
+                  <option value="linuxArm">Linux ARM64</option>
+                  <option value="mac">macOS 15+ · Apple Silicon</option>
+                  <option value="unsupported" data-i18n="unsupported">Windows on ARM, Intel Mac, or other</option>
+                </select>
+              </label>
+              <label for="cpu"><span data-i18n="cpuLabel">Handheld CPU</span>
+                <select id="cpu" name="cpu">
+                  <option value="" data-i18n="unknown">Not specified</option>
+                  <option value="avx512" data-i18n="avx512">Supports AVX-512</option>
+                  <option value="avx2" data-i18n="avx2">Supports AVX2</option>
+                  <option value="legacy" data-i18n="noAvx2">No AVX2</option>
+                </select>
+              </label>
+              <label for="ram"><span data-i18n="ramLabel">System RAM</span>
+                <select id="ram" name="ram">
+                  <option value="" data-i18n="unknown">Not specified</option>
+                  <option value="8" data-i18n="ram8">Up to 8 GB</option>
+                  <option value="12">9–15 GB</option>
+                  <option value="16">16–23 GB</option>
+                  <option value="24" data-i18n="ram24">24 GB or more</option>
+                </select>
+              </label>
+              <label for="game"><span data-i18n="gameLabel">Game of interest</span>
+                <select id="game" name="game">
+                  <option value="" data-i18n="generalUse">General use</option>
+                  <option value="oot">Ocarina of Time</option>
+                </select>
+              </label>
+            </div>
+          </details>
+          <div class="form-actions">
+            <button class="button button-dark" type="submit"><span data-i18n="findBuild">Find my build</span> <span aria-hidden="true">→</span></button>
+            <button class="clear" type="reset" data-i18n="clear">Clear</button>
+          </div>
+          <noscript><p>Enable JavaScript to use the selector, or browse the releases below.</p></noscript>
+        </form>
+      </section>
+
+      <section class="panel result-panel" aria-labelledby="result-title">
+        <p class="eyebrow section-label"><span>02</span> <span data-i18n="recommendation">RECOMMENDATION</span></p>
+        <div id="result" aria-live="polite" aria-atomic="true">
+          <span class="result-badge" data-i18n="startingPoint">Starting point</span>
+          <h2 id="result-title" data-i18n="mainName">Main Lichii</h2>
+          <p class="result-description" data-i18n="defaultDescription">The main release is the general-purpose option for Windows x64, Linux, and Apple Silicon Macs.</p>
+          <div class="result-actions">
+            <a class="button button-lime" href="https://github.com/zortos293/Lichii/releases/download/build-117/lichii-windows-x86_64.zip" target="_blank" rel="noopener" data-download-link>
+              <img class="platform-icon" src="./windows.svg" alt="" width="16" height="16">
+              <span class="download-copy">
+                <span data-i18n="downloadWindows">Download Windows x64</span>
+                <small class="download-version" data-download-version>Build 117</small>
+              </span>
+              <span aria-hidden="true">↗</span>
+            </a>
+            <a class="button button-outline" href="https://github.com/zortos293/Lichii/releases/tag/build-117" target="_blank" rel="noopener" data-release-link><span data-i18n="viewRelease">View release</span> <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="result-notes"><p data-i18n="defaultNote">Enter your hardware to see if a specialized build is a better fit.</p></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="catalog" id="builds" aria-labelledby="builds-title">
+      <p class="eyebrow section-label"><span>03</span> <span data-i18n="catalog">CATALOG</span></p>
+      <div class="catalog-heading">
+        <h2 id="builds-title" data-i18n="catalogTitle">The five builds</h2>
+        <p data-i18n="catalogDescription">What each project focuses on and where to find its releases.</p>
+      </div>
+      <ul class="build-list">
+        <li><span class="build-index">01</span><div><h3 data-i18n="mainName">Main Lichii</h3><p data-i18n="mainDescription">General-purpose build for Windows x64, Linux x64/ARM64 (including SteamOS x64), and macOS 15+ on Apple Silicon.</p></div><a href="https://github.com/zortos293/Lichii/releases" aria-label="Main Lichii releases" data-i18n-aria-label="mainReleases">Releases <span aria-hidden="true">↗</span></a></li>
+        <li><span class="build-index">02</span><div><h3>AMD Superior <small>CheezerWheezer</small></h3><p data-i18n="amdDescription">Pre-release with Radeon GPU tweaks and disk shader caching on compatible drivers.</p></div><a href="https://github.com/CheezerWheezer/Lichii/releases" aria-label="AMD Superior releases" data-i18n-aria-label="amdReleases">Releases <span aria-hidden="true">↗</span></a></li>
+        <li><span class="build-index">03</span><div><h3>Lichii Ally <small>Syyrhc</small></h3><p data-i18n="allyDescription">Windows x64 handhelds. Steam Deck with Windows uses Universal AVX2. Steam Deck with SteamOS uses Main Lichii for Linux.</p></div><a href="https://github.com/Syyrhc/Lichii-Ally/releases" aria-label="Lichii Ally releases" data-i18n-aria-label="allyReleases">Releases <span aria-hidden="true">↗</span></a></li>
+        <li><span class="build-index">04</span><div><h3>Lichii OoT AMD <small>conongnang</small></h3><p data-i18n="ootDescription">Pre-release focused on Ocarina of Time on Radeon GPUs.</p></div><a href="https://github.com/conongnang/Lichii/releases" aria-label="Lichii OoT AMD releases" data-i18n-aria-label="ootReleases">Releases <span aria-hidden="true">↗</span></a></li>
+        <li><span class="build-index">05</span><div><h3>Fritchii <small>Frizti</small></h3><p data-i18n="fritchiiDescription">Windows x64 pre-release focused on Ocarina of Time, with documented tests on an RTX 4080.</p></div><a href="https://github.com/Frizti/Fritchii/releases" aria-label="Fritchii releases" data-i18n-aria-label="fritchiiReleases">Releases <span aria-hidden="true">↗</span></a></li>
+      </ul>
+      <details class="method">
+        <summary data-i18n="methodTitle">How does the selector choose?</summary>
+        <p data-i18n="methodDescription">The operating system determines which packages are available. The handheld model, GPU, and game guide the choice of fork. The CPU determines which Lichii Ally edition to use, and RAM helps put shared memory on handhelds in context.</p>
+        <p><span data-i18n="methodDateIntro">Recommendations use release notes and downloads reviewed on</span> <time datetime="2026-11-08" data-i18n="reviewDate">November 8, 2026</time>. <span data-i18n="methodDateOutro">Performance varies by game, driver, and hardware.</span></p>
+        <p data-i18n="updatesDescription">The selector checks GitHub for a newer release with the matching package. If the check fails or the file is unavailable, the download keeps its bundled version.</p>
+      </details>
+    </section>
+  </main>
+
+  <footer class="shell footer">
+    <span>Lichii Build Selector</span>
+    <span data-i18n="footer">An independent guide based on each project's releases.</span>
+  </footer>
+</body>
+</html>

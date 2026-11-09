@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "common/alignment.h"
 #include "common/common_types.h"
 #include "shader_recompiler/shader_info.h"
 #include "video_core/memory_manager.h"

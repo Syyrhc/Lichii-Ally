@@ -1019,13 +1019,15 @@ bool KeplerCompute::BypassOotNetwork(u64 program_id, u64 native_key) {
     if (native_key != OutputProgramKey) {
         return false;
     }
-    // The copy needs the tonemapped image to be a B10G11R11 block-linear image of the output's size.
+    // Dynamic resolution can leave the tonemapped image smaller than the output.
     const auto output = ConstBuffer0Image(OutputImageHandleOffset);
+    const u32 source_width = tonemapped.width;
+    const u32 source_height = tonemapped.height;
     if (!output || output->format != Texture::TextureFormat::B10G11R11 || output->Address() == 0 ||
         output->Address() == tonemapped.Address() || !output->IsBlockLinear() ||
         tonemapped.format != Tegra::RenderTargetFormat::B10G11R11_FLOAT ||
-        tonemapped.tile_mode.is_pitch_linear || tonemapped.width == 0 || tonemapped.height == 0 ||
-        tonemapped.width > output->Width() || tonemapped.height > output->Height()) {
+        tonemapped.tile_mode.is_pitch_linear || source_width == 0 || source_height == 0 ||
+        source_width > output->Width() || source_height > output->Height()) {
         state->output_replaced.store(false, std::memory_order_relaxed);
         static bool warned = false;
         if (!std::exchange(warned, true)) {
@@ -1053,12 +1055,10 @@ bool KeplerCompute::BypassOotNetwork(u64 program_id, u64 native_key) {
     source.block_width.Assign(tonemapped.tile_mode.block_width);
     source.block_height.Assign(tonemapped.tile_mode.block_height);
     source.block_depth.Assign(tonemapped.tile_mode.block_depth);
+    source.width = source_width;
+    source.height = source_height;
     source.addr_upper = tonemapped.address_high;
     source.addr_lower = tonemapped.address_low;
-    // With dynamic resolution the tonemapped image can be smaller than the output: scale it up
-    // bilinearly instead of falling back to the network.
-    source.width = tonemapped.width;
-    source.height = tonemapped.height;
     const s32 width = static_cast<s32>(output->Width());
     const s32 height = static_cast<s32>(output->Height());
     const s32 src_width = static_cast<s32>(tonemapped.width);

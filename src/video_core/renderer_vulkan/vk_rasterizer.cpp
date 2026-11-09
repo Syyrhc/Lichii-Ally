@@ -1121,6 +1121,11 @@ void RasterizerVulkan::TrackOotTonemappedImage(const GraphicsPipeline& pipeline)
         return;
     }
     std::scoped_lock lock{oot_network_bypass.mutex};
+    const auto& previous = oot_network_bypass.tonemapped;
+    if (previous.width != target.width || previous.height != target.height ||
+        previous.format != target.format) {
+        oot_network_bypass.output_replaced.store(false, std::memory_order_relaxed);
+    }
     if (oot_network_bypass.tonemapped.Address() != target.Address()) {
         LOG_INFO(Render_Vulkan, "Ocarina of Time: tonemapped image at {:#x} {}x{}", target.Address(),
                  target.width, target.height);

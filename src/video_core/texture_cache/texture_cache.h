@@ -467,22 +467,32 @@ void TextureCache<P>::ApplyThresholdOverrides(bool log) {
     // its aggressive mode, re-creating ~10k images and re-uploading 13-16 GB every 22 s (with
     // ~9 GiB: ~600 images and 1.5 GB). 8 GB cards keep 5 GiB. TickFrame still lowers the
     // thresholds below the budget as it shrinks.
+    u64 budget_critical = critical_memory;
+    u64 budget_expected = expected_memory;
     u64 max_critical = MaxCriticalMemory;
     if constexpr (requires { runtime.GetDeviceMemoryBudget(); }) {
-        max_critical = (std::max)(max_critical, runtime.GetDeviceMemoryBudget() / 5 * 3);
-    }
-    critical_memory = (std::min)(critical_memory, max_critical);
-    expected_memory =
-        (std::min)(expected_memory, critical_memory - (std::min)(critical_memory, u64{768_MiB}));
-    minimum_memory =
-        (std::min)(minimum_memory, expected_memory - (std::min)(expected_memory, u64{1_GiB}));
-    // EDEN_NX2_TC_EXPECTED_MIB / EDEN_NX2_TC_CRITICAL_MIB override the collector's thresholds.
-    for (const auto& [name, target] : {std::pair{"EDEN_NX2_TC_EXPECTED_MIB", &expected_memory},
-                                       std::pair{"EDEN_NX2_TC_CRITICAL_MIB", &critical_memory}}) {
-        if (const char* value = std::getenv(name)) {
-            *target = std::strtoull(value, nullptr, 10) << 20;
+        const u64 budget = runtime.GetDeviceMemoryBudget();
+        max_critical = (std::max)(max_critical, budget / 5 * 3);
+        if (budget != 0) {
+            budget_critical = (std::min)(budget_critical, budget);
+            budget_expected = (std::min)(budget_expected, budget_critical);
         }
     }
+    critical_memory = (std::min)(budget_critical, max_critical);
+    expected_memory =
+        (std::min)(budget_expected, critical_memory - (std::min)(critical_memory, u64{768_MiB}));
+    // Overrides can bypass the default cap but must leave the driver's budget margins in place.
+    const auto apply_override = [](const char* name, u64& threshold, u64 limit) {
+        if (const char* value = std::getenv(name)) {
+            const u64 mib = std::strtoull(value, nullptr, 10);
+            threshold = mib > (limit >> 20) ? limit : mib << 20;
+        }
+    };
+    apply_override("EDEN_NX2_TC_EXPECTED_MIB", expected_memory, budget_expected);
+    apply_override("EDEN_NX2_TC_CRITICAL_MIB", critical_memory, budget_critical);
+    expected_memory = (std::min)(expected_memory, critical_memory);
+    minimum_memory =
+        (std::min)(minimum_memory, expected_memory - (std::min)(expected_memory, u64{1_GiB}));
     if (log) {
         LOG_INFO(HW_GPU, "Texture cache thresholds: expected {} MiB, critical {} MiB, minimum {} MiB",
                  expected_memory >> 20, critical_memory >> 20, minimum_memory >> 20);
@@ -506,8 +516,8 @@ void TextureCache<P>::TickFrame() {
         if (!native_thresholds_applied && gpu_memory != nullptr && gpu_memory->UsesNativeTiling()) {
             native_thresholds_applied = true;
             const u64 device_local = runtime.GetDeviceLocalMemory();
-            critical_memory = (std::max)(critical_memory, device_local - 256_MiB);
-            expected_memory = (std::max)(expected_memory, device_local - 1280_MiB);
+            critical_memory = (std::max)(critical_memory, device_local - (std::min)(device_local, 256_MiB));
+            expected_memory = (std::max)(expected_memory, device_local - (std::min)(device_local, 1280_MiB));
             ApplyThresholdOverrides();
             native_critical_memory = critical_memory;
             native_expected_memory = expected_memory;
@@ -519,7 +529,7 @@ void TextureCache<P>::TickFrame() {
         // unused. Both thresholds stay under it with a margin (1/8 of it, at most 1 GiB): past it
         // allocations fail and images end up unbacked (garbage textures), and Windows shrinks the
         // budget as the card fills (16 GB card: 13.5 GB left mid-race), hence the re-read every 30
-        // frames. EDEN_NX2_TC_*_MIB overrides still win.
+        // frames. EDEN_NX2_TC_*_MIB overrides are bounded by these thresholds.
         if constexpr (requires { runtime.GetDeviceMemoryBudget(); }) {
             if constexpr (requires { runtime.MemoryPressureEvents(); }) {
                 // Images that did not fit (made in host memory or with nothing bound) mean the
@@ -542,7 +552,7 @@ void TextureCache<P>::TickFrame() {
             }
             if (native_thresholds_applied && budget_check_frames++ % 30 == 0) {
                 const u64 budget = runtime.GetDeviceMemoryBudget();
-                if (budget > 2_GiB) {
+                if (budget != 0) {
                     const u64 old_critical = critical_memory;
                     const u64 margin = (std::min)(budget / 8, 1_GiB);
                     if constexpr (requires { runtime.GetDeviceMemorySlack(); }) {
