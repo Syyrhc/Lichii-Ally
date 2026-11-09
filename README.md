@@ -45,7 +45,7 @@ Download the archive matching your processor architecture from the [Releases pag
 
 ## Handheld Game Performance and Compatibility
 
-Performance verified on real handheld hardware running Windows 11 with **Lichii Ally v6** (`Xbox-Ally-X-AVX512` build, Handheld mode, Vulkan backend):
+Performance verified on real handheld hardware running Windows 11 with **Lichii Ally v5.1** (`Xbox-Ally-X-AVX512` build, Handheld mode, Vulkan backend):
 
 | Game Title | Program ID | Tested Handheld | Processor / GPU / RAM | Verified Frame Rate | Notes |
 |---|---|---|---|---|---|
