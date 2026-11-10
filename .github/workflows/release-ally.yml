@@ -328,10 +328,12 @@ jobs:
           3. All handheld optimizations - \`clang-cl\` 22 ThinLTO + PGO, Windows 11 hybrid CPU thread scheduling, UMA-safe memory and BC3 texture cache management, automatic DLSS to AMD FSR 3.1 replacement, Borderless Windowed Fullscreen, and **40 FPS** 120 Hz VRR Genlock - are enabled out of the box.
 
           ### What's New in ${VERSION_LABEL}
-          - **Safe Switch 2 12 GiB Layout with SEC_RESERVE:** Switch 2 titles retain the required 12 GiB virtual memory layout (`9809 MiB` Application Pool) to prevent guest allocator NULL-pointer crashes (`Sound/BusSet`), while `EDEN_NX2_SEC_RESERVE` commits physical host RAM strictly on demand.
-          - **Lower memory pressure on integrated GPUs:** Texture collection starts at 512 MiB, expects up to 1024 MiB, becomes critical at 1536 MiB, and evicts up to 80 images per aggressive pass. Windows trims the working set after shader preparation and reclaims zero-filled guest pages during the first three minutes of Switch 2 gameplay.
-          - **Xbox gamepad setup:** SDL can map a connected Xbox gamepad to the default keyboard-only profiles and select Handheld mode. Custom mappings are preserved.
-          - **Ally branding:** New application icon and a title bar that shows the packaged version.
+          - **Safe Switch 2 12 GiB Layout with SEC_RESERVE:** Switch 2 titles retain the required 12 GiB virtual memory layout (`9809 MiB` Application Pool) to prevent guest allocator NULL-pointer crashes (`Sound/BusSet`), while `EDEN_NX2_SEC_RESERVE` commits physical host RAM strictly on demand and `ZeroTrim` reclaims all-zero guest pages across the session.
+          - **Lower Memory Pressure & Commit Protection (`zortos #1210`):** Texture collection on integrated GPUs starts at 512 MiB, expects up to 1024 MiB, becomes critical at 1536 MiB, evicts up to 80 images per aggressive pass, and stays strictly bounded by Windows host commit room. Windows also trims the working set right after shader preparation.
+          - **AMD RDNA Rendering & Mesh Shaders Fallback (Fritchii v5.6 / `zortos #814`, `#353`, `#1199`):** Eliminates AMD driver hangs on mesh shader draws via compute fallback, removes rainbow "disco" sky/horizon outlines, prevents "light-beam" glowing triangles via compute write-extent tracking, and unmaps stale sub-102 GPU ranges (`#1199`).
+          - **FSR 3.1 / FSR 4, High Refresh (`Ctrl+U`) & Performance (`EXP61` / `#1161`):** Adds AMD FSR 3.1 and FSR 4 anti-aliasing options, live `Ctrl+U` high-refresh toggle with working water ripples (`#1152`), cutscene A/V timestamp sync, zero-allocation GPU report/fence paths, and Ocarina ADPCM/microphone fixes.
+          - **Xbox Gamepad Auto-Setup:** Automatically detects and maps a connected Xbox controller (`Xbox 360 Controller 0`) to Handheld mode instead of defaulting to Keyboard Only, while preserving custom user mappings.
+          - **New Lichii Ally Branding:** Features the custom 3D ROG Ally X + Lichii emblem icon and clean `Lichii Ally | v6.1` title bar.
 
           ### Recommended System Settings (ASUS ROG Xbox Ally X)
           - **Armoury Crate SE VRAM:** Start with **6 GB** for the memory test. Restart the Ally after changing it.
