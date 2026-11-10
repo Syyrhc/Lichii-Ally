@@ -5110,19 +5110,14 @@ void MainWindow::OnApplicationChanged(u64 program_id) {
 
 void MainWindow::UpdateWindowTitle(std::string_view title_name, std::string_view title_version,
                                    std::string_view gpu_vendor) {
-    static const std::string window_title = "Lichii Ally | v6.0";
+    static constexpr std::string_view window_title = "Lichii Ally | v6.0";
 
     if (title_name.empty()) {
-        setWindowTitle(QString::fromStdString(window_title));
+        setWindowTitle(QString::fromUtf8(window_title.data(), static_cast<qsizetype>(window_title.size())));
+    } else if (title_version.empty()) {
+        setWindowTitle(QString::fromStdString(fmt::format("{} | {} | {}", window_title, title_name, gpu_vendor)));
     } else {
-        const auto run_title = [window_title, title_name, title_version, gpu_vendor]() {
-            if (title_version.empty()) {
-                return fmt::format("{} | {} | {}", window_title, title_name, gpu_vendor);
-            }
-            return fmt::format("{} | {} | {} | {}", window_title, title_name, title_version,
-                               gpu_vendor);
-        }();
-        setWindowTitle(QString::fromStdString(run_title));
+        setWindowTitle(QString::fromStdString(fmt::format("{} | {} | {} | {}", window_title, title_name, title_version, gpu_vendor)));
     }
 }
 
