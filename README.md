@@ -89,7 +89,7 @@ Testing on an ASUS ROG Xbox Ally X, ROG Ally (Z1E / X), Lenovo Legion Go, MSI Cl
 | Component | Recommended Setting | Technical Rationale |
 |---|---|---|
 | **Armoury Crate SE - GPU Memory (VRAM)** | **6 GB** for the first memory test | Reserves 2 GB less RAM for the GPU than the 8 GB setting. Restart the Ally after changing it. |
-| **Lichii - Memory Layout for Ocarina of Time** | **6 GiB DRAM** | v6.1 defaults to this layout on detected ROG Ally models. You can select 8 GiB or 12 GiB in the game's settings if it runs out of guest memory. |
+| **Lichii - Memory Layout** | **12 GiB (Switch 2) / 6 GiB (Switch 1)** | Switch 2 titles retain the required 12 GiB virtual memory layout with `EDEN_NX2_SEC_RESERVE` on-demand physical commit, while detected Windows handhelds default to 6 GiB DRAM for Switch 1 titles. |
 | **Windows Display Settings** | **1080p @ 120 Hz + FreeSync (VRR) Enabled** | Enables exact `120 Hz / 3` Genlock cadence at 40 FPS and absorbs minor frame-time variance. |
 | **AMD Software: Adrenalin Edition** | **Disable Radeon Anti-Lag, Radeon Boost, and AFMF** | Prevents driver-level frame queues from interfering with the emulator's internal low-latency host pacer. |
 | **Operating Mode (TDP)** | **17W-20W** (40 FPS) / **25W-30W** (60 FPS) / **13W-15W** (30 FPS) | Matches APU package power to your selected target frame rate and 80 Wh battery life goal. |

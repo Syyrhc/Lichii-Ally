@@ -752,15 +752,18 @@ std::vector<Common::ParamPackage> SDLDriver::GetInputDevices() const {
                 fmt::format("{} {}", joystick->GetControllerName(), joystick->GetPort());
             auto* gamepad = joystick->GetSDLGameController();
             const auto type = gamepad ? SDL_GetGamepadType(gamepad) : SDL_GAMEPAD_TYPE_UNKNOWN;
+            const bool is_virtual = SDL_IsJoystickVirtual(SDL_GetJoystickID(joystick_handle));
             const bool xbox_gamepad =
                 (type == SDL_GAMEPAD_TYPE_XBOX360 || type == SDL_GAMEPAD_TYPE_XBOXONE) &&
-                !SDL_IsJoystickVirtual(SDL_GetJoystickID(joystick_handle));
+                !is_virtual;
+            const bool physical_gamepad = (gamepad != nullptr) && !is_virtual;
             devices.emplace_back(Common::ParamPackage{
                 {"engine", GetEngineName()},
                 {"display", std::move(name)},
                 {"guid", joystick->GetGUID().RawString()},
                 {"port", std::to_string(joystick->GetPort())},
                 {"xbox_gamepad", xbox_gamepad ? "1" : "0"},
+                {"physical_gamepad", physical_gamepad ? "1" : "0"},
             });
             if (joystick->IsJoyconLeft()) {
                 joycon_pairs.insert_or_assign(joystick->GetPort(), joystick);

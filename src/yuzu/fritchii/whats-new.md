@@ -4,12 +4,12 @@ e.g. E:\OotRemakeEmulation\release\fritchii-vX\notes.md) here before the release
 download instructions at the top are dropped in the app. While this file holds only this comment,
 no "What's new" window pops up after an update (Help > What's New says there are no notes yet).
 -->
-### Lichii Ally v6.1
+### Lichii Ally v6.2
 
 - **Switch 2 memory safety with gradual commit.** Switch 2 titles keep the 12 GiB virtual memory layout required by guest allocators (`EDEN_NX2_SEC_RESERVE` commits physical host RAM only as pages are used), while Switch 1 defaults to 6 GiB on detected Windows handhelds.
-- **Integrated GPU memory & commit protection.** Texture collection starts at 512 MiB (1024 MiB expected, 1536 MiB critical) and stays bounded by host commit room. Windows trims the working set after shader preparation and evicts zero-filled guest pages automatically.
-- **Xbox controller setup.** A connected SDL Xbox gamepad replaces the default keyboard bindings automatically and selects Handheld mode. Custom mappings are preserved.
-- **New Lichii Ally icon & upstream v5.6 + nx2 fixes.** Includes AMD Mesh Shaders compute fallback (`zortos293/Lichii#814`), rainbow/disco horizon outline fix (`#353`), light-beam compute extent fix, cutscene A/V sync, FSR 3.1 / FSR 4 upscaling, `Ctrl+U` live high refresh rate, and sub-102 GPU unmap fix (`#1199`).
+- **Integrated GPU memory & commit protection (`zortos #1210`).** Texture collection starts at 512 MiB (1024 MiB expected, 1536 MiB critical) and stays bounded by Windows host commit room. Windows trims the working set unconditionally after shader preparation on APUs and evicts zero-filled guest pages automatically.
+- **Resilient handheld controller setup.** Any connected SDL Xbox controller or physical gamepad automatically replaces old Keyboard Only bindings and selects Handheld mode, while custom mappings are preserved.
+- **New Lichii Ally branding & upstream v5.6 + nx2 fixes.** Features the custom ROG Ally X + Lichii emblem icon, `Lichii Ally | v6.2` title bar, AMD Mesh Shaders compute fallback (`zortos293/Lichii#814`), rainbow/disco horizon outline fix (`#353`), light-beam compute extent fix, cutscene A/V sync, FSR 3.1 / FSR 4 upscaling, `Ctrl+U` live high refresh rate, and sub-102 GPU unmap fix (`#1199`).
 
 ### Fritchii v5.6 (Merged Upstream)
 

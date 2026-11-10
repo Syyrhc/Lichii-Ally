@@ -15,7 +15,6 @@ on:
   push:
     branches:
       - "codex/ally-*"
-      - "main"
     tags:
       - "ally-v*"
 
@@ -332,8 +331,8 @@ jobs:
           - **Lower Memory Pressure & Commit Protection (`zortos #1210`):** Texture collection on integrated GPUs starts at 512 MiB, expects up to 1024 MiB, becomes critical at 1536 MiB, evicts up to 80 images per aggressive pass, and stays strictly bounded by Windows host commit room. Windows also trims the working set right after shader preparation.
           - **AMD RDNA Rendering & Mesh Shaders Fallback (Fritchii v5.6 / `zortos #814`, `#353`, `#1199`):** Eliminates AMD driver hangs on mesh shader draws via compute fallback, removes rainbow "disco" sky/horizon outlines, prevents "light-beam" glowing triangles via compute write-extent tracking, and unmaps stale sub-102 GPU ranges (`#1199`).
           - **FSR 3.1 / FSR 4, High Refresh (`Ctrl+U`) & Performance (`EXP61` / `#1161`):** Adds AMD FSR 3.1 and FSR 4 anti-aliasing options, live `Ctrl+U` high-refresh toggle with working water ripples (`#1152`), cutscene A/V timestamp sync, zero-allocation GPU report/fence paths, and Ocarina ADPCM/microphone fixes.
-          - **Xbox Gamepad Auto-Setup:** Automatically detects and maps a connected Xbox controller (`Xbox 360 Controller 0`) to Handheld mode instead of defaulting to Keyboard Only, while preserving custom user mappings.
-          - **New Lichii Ally Branding:** Features the custom 3D ROG Ally X + Lichii emblem icon and clean `Lichii Ally | v6.1` title bar.
+          - **Resilient Handheld Gamepad Auto-Setup:** Automatically detects and maps a connected Xbox controller (`Xbox 360 Controller 0`) or any physical SDL gamepad in Handheld mode - even when upgrading from older configs stuck on Keyboard Only - while preserving custom user mappings.
+          - **New Lichii Ally Branding:** Features the custom 3D ROG Ally X + Lichii emblem icon and clean `Lichii Ally | v6.2` title bar.
 
           ### Recommended System Settings (ASUS ROG Xbox Ally X)
           - **Armoury Crate SE VRAM:** Start with **6 GB** for the memory test. Restart the Ally after changing it.

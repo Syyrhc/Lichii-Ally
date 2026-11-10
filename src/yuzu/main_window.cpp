@@ -365,28 +365,32 @@ QString GetTranslatedGameIconSize(size_t index) {
     return QCoreApplication::translate("MainWindow", default_game_icon_sizes[index].second);
 }
 
-bool HasDefaultKeyboardMapping(const Settings::PlayerInput& player) {
+bool IsKeyboardOnlyMapping(const Settings::PlayerInput& player) {
     if (!player.profile_name.empty() ||
         (player.controller_type != Settings::ControllerType::ProController &&
          player.controller_type != Settings::ControllerType::Handheld)) {
         return false;
     }
 
-    for (size_t i = 0; i < player.buttons.size(); ++i) {
-        if (player.buttons[i] != InputCommon::GenerateKeyboardParam(QtConfig::default_buttons[i])) {
+    const auto is_keyboard_or_empty = [](const std::string& serialized) {
+        if (serialized.empty()) {
+            return true;
+        }
+        const std::string engine = Common::ParamPackage{serialized}.Get("engine", "");
+        return engine.empty() || engine == "keyboard" || engine == "mouse";
+    };
+    for (const auto& binding : player.buttons) {
+        if (!is_keyboard_or_empty(binding)) {
             return false;
         }
     }
-    for (size_t i = 0; i < player.analogs.size(); ++i) {
-        const auto& keys = QtConfig::default_analogs[i];
-        const auto default_analog = InputCommon::GenerateAnalogParamFromKeys(
-            keys[0], keys[1], keys[2], keys[3], QtConfig::default_stick_mod[i], 0.5f);
-        if (player.analogs[i] != default_analog) {
+    for (const auto& binding : player.analogs) {
+        if (!is_keyboard_or_empty(binding)) {
             return false;
         }
     }
-    for (size_t i = 0; i < player.motions.size(); ++i) {
-        if (player.motions[i] != InputCommon::GenerateKeyboardParam(QtConfig::default_motions[i])) {
+    for (const auto& binding : player.motions) {
+        if (!is_keyboard_or_empty(binding)) {
             return false;
         }
     }
@@ -399,45 +403,50 @@ bool TryAutoMapXboxController(const InputCommon::InputSubsystem& input) {
     auto& player_one = players[Service::HID::NpadIdTypeToIndex(Core::HID::NpadIdType::Player1)];
     auto& handheld = players[Service::HID::NpadIdTypeToIndex(Core::HID::NpadIdType::Handheld)];
     if (mapped.GetValue() || (!player_one.connected && !handheld.connected) ||
-        !HasDefaultKeyboardMapping(player_one) || !HasDefaultKeyboardMapping(handheld)) {
+        !IsKeyboardOnlyMapping(player_one) || !IsKeyboardOnlyMapping(handheld)) {
         return false;
     }
 
-    for (const auto& device : input.GetInputDevices()) {
-        if (device.Get("xbox_gamepad", 0) == 0) {
-            continue;
+    const auto devices = input.GetInputDevices();
+    const auto try_map = [&](const char* flag_name) {
+        for (const auto& device : devices) {
+            if (device.Get(flag_name, 0) == 0) {
+                continue;
+            }
+            const auto buttons = input.GetButtonMappingForDevice(device);
+            const auto analogs = input.GetAnalogMappingForDevice(device);
+            if (buttons.empty() || analogs.size() != handheld.analogs.size()) {
+                continue;
+            }
+            const auto motions = input.GetMotionMappingForDevice(device);
+            const auto unbound = Common::ParamPackage{}.Serialize();
+            const auto apply = [&](Settings::PlayerInput& player) {
+                player.buttons.fill(unbound);
+                player.motions.fill(unbound);
+                for (const auto& [index, param] : buttons) {
+                    player.buttons[index] = param.Serialize();
+                }
+                for (const auto& [index, param] : analogs) {
+                    player.analogs[index] = param.Serialize();
+                }
+                for (const auto& [index, param] : motions) {
+                    player.motions[index] = param.Serialize();
+                }
+                player.controller_type = Settings::ControllerType::Handheld;
+            };
+            apply(player_one);
+            apply(handheld);
+            player_one.connected = false;
+            handheld.connected = true;
+            Settings::values.use_docked_mode.SetValue(Settings::ConsoleMode::Handheld);
+            mapped.SetValue(true);
+            LOG_INFO(Frontend, "Automatically mapped {} in Handheld mode",
+                     device.Get("display", ""));
+            return true;
         }
-        const auto buttons = input.GetButtonMappingForDevice(device);
-        const auto analogs = input.GetAnalogMappingForDevice(device);
-        if (buttons.empty() || analogs.size() != handheld.analogs.size()) {
-            continue;
-        }
-        const auto motions = input.GetMotionMappingForDevice(device);
-        const auto unbound = Common::ParamPackage{}.Serialize();
-        const auto apply = [&](Settings::PlayerInput& player) {
-            player.buttons.fill(unbound);
-            player.motions.fill(unbound);
-            for (const auto& [index, param] : buttons) {
-                player.buttons[index] = param.Serialize();
-            }
-            for (const auto& [index, param] : analogs) {
-                player.analogs[index] = param.Serialize();
-            }
-            for (const auto& [index, param] : motions) {
-                player.motions[index] = param.Serialize();
-            }
-            player.controller_type = Settings::ControllerType::Handheld;
-        };
-        apply(player_one);
-        apply(handheld);
-        player_one.connected = false;
-        handheld.connected = true;
-        Settings::values.use_docked_mode.SetValue(Settings::ConsoleMode::Handheld);
-        mapped.SetValue(true);
-        LOG_INFO(Frontend, "Automatically mapped {} in Handheld mode", device.Get("display", ""));
-        return true;
-    }
-    return false;
+        return false;
+    };
+    return try_map("xbox_gamepad") || try_map("physical_gamepad");
 }
 
 } // namespace
