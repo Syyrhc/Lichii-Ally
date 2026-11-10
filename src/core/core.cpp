@@ -6,7 +6,6 @@
 #include <atomic>
 #include <memory>
 #include <optional>
-#include <thread>
 #include <utility>
 
 #include "game_settings.h"
@@ -300,13 +299,6 @@ struct System::Impl {
         kernel.SuspendEmulation(false);
         core_timing.SyncPause(false);
         is_paused.store(false, std::memory_order_relaxed);
-#ifdef _WIN32
-        if (Settings::CurrentProgramIsSwitch2() && device_memory && !zero_trim_worker.joinable()) {
-            zero_trim_worker = std::jthread{[memory = &*device_memory](std::stop_token stop) {
-                memory->TrimZeroPagesOnStartup(stop);
-            }};
-        }
-#endif
     }
 
     void Pause() {
@@ -535,9 +527,6 @@ struct System::Impl {
     }
 
     void ShutdownMainProcess() {
-#ifdef _WIN32
-        zero_trim_worker = {};
-#endif
         debug_service.reset();
         // Waits for a call in progress (it opens the RomFS, a quick step).
         VideoCommon::Nx2Precompile::SetGameFiles(0, {});
@@ -642,9 +631,6 @@ struct System::Impl {
     std::optional<Core::PerfStats> perf_stats;
     std::optional<Tegra::Host1x::Host1x> host1x_core;
     std::optional<Core::DeviceMemory> device_memory;
-#ifdef _WIN32
-    std::jthread zero_trim_worker;
-#endif
     std::optional<AudioCore::AudioCore> audio_core;
     std::optional<Memory::CheatEngine> cheat_engine;
     std::optional<Tools::Freezer> memory_freezer;
