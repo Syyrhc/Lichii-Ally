@@ -100,6 +100,7 @@
 #endif
 
 // Qt Common //
+#include "qt_common/config/qt_config.h"
 #include "qt_common/config/shared_translation.h"
 #include "qt_common/config/uisettings.h"
 
@@ -141,6 +142,7 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 #include "common/fs/fs.h"
 #include "common/logging.h"
 #include "common/memory_detect.h"
+#include "common/param_package.h"
 #include "common/scm_rev.h"
 #include "common/scope_exit.h"
 #include "common/string_util.h"
@@ -174,7 +176,9 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 // Input //
 #include "hid_core/frontend/emulated_controller.h"
 #include "hid_core/hid_core.h"
+#include "hid_core/hid_util.h"
 #include "input_common/drivers/virtual_amiibo.h"
+#include "input_common/main.h"
 
 // Video Core //
 #include "video_core/gpu.h"
@@ -358,6 +362,81 @@ constexpr std::array<std::pair<u32, const char*>, 5> default_game_icon_sizes{
 
 QString GetTranslatedGameIconSize(size_t index) {
     return QCoreApplication::translate("MainWindow", default_game_icon_sizes[index].second);
+}
+
+bool HasDefaultKeyboardMapping(const Settings::PlayerInput& player) {
+    if (!player.profile_name.empty() ||
+        (player.controller_type != Settings::ControllerType::ProController &&
+         player.controller_type != Settings::ControllerType::Handheld)) {
+        return false;
+    }
+
+    for (size_t i = 0; i < player.buttons.size(); ++i) {
+        if (player.buttons[i] != InputCommon::GenerateKeyboardParam(QtConfig::default_buttons[i])) {
+            return false;
+        }
+    }
+    for (size_t i = 0; i < player.analogs.size(); ++i) {
+        const auto& keys = QtConfig::default_analogs[i];
+        const auto default_analog = InputCommon::GenerateAnalogParamFromKeys(
+            keys[0], keys[1], keys[2], keys[3], QtConfig::default_stick_mod[i], 0.5f);
+        if (player.analogs[i] != default_analog) {
+            return false;
+        }
+    }
+    for (size_t i = 0; i < player.motions.size(); ++i) {
+        if (player.motions[i] != InputCommon::GenerateKeyboardParam(QtConfig::default_motions[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool TryAutoMapXboxController(const InputCommon::InputSubsystem& input) {
+    auto& mapped = UISettings::values.ally_auto_mapped_controller;
+    auto& players = Settings::values.players.GetValue(true);
+    auto& player_one = players[Service::HID::NpadIdTypeToIndex(Core::HID::NpadIdType::Player1)];
+    auto& handheld = players[Service::HID::NpadIdTypeToIndex(Core::HID::NpadIdType::Handheld)];
+    if (mapped.GetValue() || (!player_one.connected && !handheld.connected) ||
+        !HasDefaultKeyboardMapping(player_one) || !HasDefaultKeyboardMapping(handheld)) {
+        return false;
+    }
+
+    for (const auto& device : input.GetInputDevices()) {
+        if (device.Get("xbox_gamepad", 0) == 0) {
+            continue;
+        }
+        const auto buttons = input.GetButtonMappingForDevice(device);
+        const auto analogs = input.GetAnalogMappingForDevice(device);
+        if (buttons.empty() || analogs.size() != handheld.analogs.size()) {
+            continue;
+        }
+        const auto motions = input.GetMotionMappingForDevice(device);
+        const auto unbound = Common::ParamPackage{}.Serialize();
+        const auto apply = [&](Settings::PlayerInput& player) {
+            player.buttons.fill(unbound);
+            player.motions.fill(unbound);
+            for (const auto& [index, param] : buttons) {
+                player.buttons[index] = param.Serialize();
+            }
+            for (const auto& [index, param] : analogs) {
+                player.analogs[index] = param.Serialize();
+            }
+            for (const auto& [index, param] : motions) {
+                player.motions[index] = param.Serialize();
+            }
+            player.controller_type = Settings::ControllerType::Handheld;
+        };
+        apply(player_one);
+        apply(handheld);
+        player_one.connected = false;
+        handheld.connected = true;
+        Settings::values.use_docked_mode.SetValue(Settings::ConsoleMode::Handheld);
+        mapped.SetValue(true);
+        LOG_INFO(Frontend, "Automatically mapped {} in Handheld mode", device.Get("display", ""));
+        return true;
+    }
+    return false;
 }
 
 } // namespace
@@ -1089,6 +1168,9 @@ void MainWindow::WebBrowserRequestExit() {
 void MainWindow::InitializeWidgets() {
     render_window = new GRenderWindow(this, input_subsystem);
     render_window->hide();
+    if (TryAutoMapXboxController(*input_subsystem)) {
+        config->SaveAllValues();
+    }
 
     game_list = new GameList(QtCommon::vfs, QtCommon::provider.get(), *play_time_manager,
                              *QtCommon::system, this);
@@ -4012,6 +4094,10 @@ void MainWindow::OnToggleDockedMode() {
         handheld->Disconnect();
         player_1->SetNpadStyleIndex(Core::HID::NpadStyleIndex::Fullkey);
         player_1->Connect();
+        if (player_1->IsConnected() && Settings::values.players.UsingGlobal()) {
+            player_1->SaveCurrentConfig();
+            handheld->SaveCurrentConfig();
+        }
         controller_dialog->refreshConfiguration();
     }
 
@@ -5110,14 +5196,17 @@ void MainWindow::OnApplicationChanged(u64 program_id) {
 
 void MainWindow::UpdateWindowTitle(std::string_view title_name, std::string_view title_version,
                                    std::string_view gpu_vendor) {
-    static constexpr std::string_view window_title = "Lichii Ally | v6.0";
+    const auto window_title = fmt::format("{} | {}", std::string_view{Common::g_build_name},
+                                         std::string_view{Common::g_build_version});
 
     if (title_name.empty()) {
-        setWindowTitle(QString::fromUtf8(window_title.data(), static_cast<qsizetype>(window_title.size())));
+        setWindowTitle(QString::fromStdString(window_title));
     } else if (title_version.empty()) {
-        setWindowTitle(QString::fromStdString(fmt::format("{} | {} | {}", window_title, title_name, gpu_vendor)));
+        setWindowTitle(QString::fromStdString(
+            fmt::format("{} | {} | {}", window_title, title_name, gpu_vendor)));
     } else {
-        setWindowTitle(QString::fromStdString(fmt::format("{} | {} | {} | {}", window_title, title_name, title_version, gpu_vendor)));
+        setWindowTitle(QString::fromStdString(
+            fmt::format("{} | {} | {} | {}", window_title, title_name, title_version, gpu_vendor)));
     }
 }
 

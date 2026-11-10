@@ -23,6 +23,9 @@ class DeviceMemory {
 public:
     explicit DeviceMemory();
     ~DeviceMemory();
+#ifdef _WIN32
+    void TrimZeroPagesOnStartup(std::stop_token stop);
+#endif
 
     DeviceMemory& operator=(const DeviceMemory&) = delete;
     DeviceMemory(const DeviceMemory&) = delete;

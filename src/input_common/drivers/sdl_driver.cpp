@@ -744,16 +744,23 @@ std::vector<Common::ParamPackage> SDLDriver::GetInputDevices() const {
     ::Common::unordered_map<int, std::shared_ptr<SDLJoystick>> joycon_pairs;
     for (const auto& [key, value] : joystick_map) {
         for (const auto& joystick : value) {
-            if (!joystick->GetSDLJoystick()) {
+            auto* joystick_handle = joystick->GetSDLJoystick();
+            if (!joystick_handle) {
                 continue;
             }
             const std::string name =
                 fmt::format("{} {}", joystick->GetControllerName(), joystick->GetPort());
+            auto* gamepad = joystick->GetSDLGameController();
+            const auto type = gamepad ? SDL_GetGamepadType(gamepad) : SDL_GAMEPAD_TYPE_UNKNOWN;
+            const bool xbox_gamepad =
+                (type == SDL_GAMEPAD_TYPE_XBOX360 || type == SDL_GAMEPAD_TYPE_XBOXONE) &&
+                !SDL_IsJoystickVirtual(SDL_GetJoystickID(joystick_handle));
             devices.emplace_back(Common::ParamPackage{
                 {"engine", GetEngineName()},
                 {"display", std::move(name)},
                 {"guid", joystick->GetGUID().RawString()},
                 {"port", std::to_string(joystick->GetPort())},
+                {"xbox_gamepad", xbox_gamepad ? "1" : "0"},
             });
             if (joystick->IsJoyconLeft()) {
                 joycon_pairs.insert_or_assign(joystick->GetPort(), joystick);

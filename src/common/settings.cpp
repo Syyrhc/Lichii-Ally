@@ -10,6 +10,7 @@
 #include <exception>
 #include <stdexcept>
 #endif
+#include <algorithm>
 #include <compare>
 #include <cstddef>
 #include <filesystem>
@@ -27,6 +28,10 @@
 #include "common/logging.h"
 #include "common/settings.h"
 #include "common/time_zone.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #if defined(__linux__ ) && defined(ARCHITECTURE_arm64)
 #include <unistd.h>
@@ -82,6 +87,53 @@ SWITCHABLE(ConfirmStop, true);
 #undef SETTING
 #undef SWITCHABLE
 #endif
+
+MemoryLayout GetDefaultMemoryLayout() {
+#ifdef _WIN32
+    static const bool handheld = [] {
+        const auto read_bios = [](const wchar_t* key) -> std::wstring {
+            wchar_t value[256]{};
+            DWORD size = sizeof(value);
+            if (RegGetValueW(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\BIOS", key,
+                             RRF_RT_REG_SZ, nullptr, value, &size) != ERROR_SUCCESS) {
+                return {};
+            }
+            return value;
+        };
+        const auto vendor = read_bios(L"BaseBoardManufacturer");
+        const auto board = read_bios(L"BaseBoardProduct");
+        if (vendor.starts_with(L"ASUSTeK") || vendor.starts_with(L"ASUSTEK")) {
+            constexpr std::wstring_view rog[]{L"RC71L", L"RC72LA", L"RC73XA", L"RC73YA",
+                                              L"RC74XA"};
+            const auto model = read_bios(L"SystemProductName");
+            return std::ranges::any_of(rog, [&](std::wstring_view id) {
+                return board == id || model.find(id) != std::wstring::npos;
+            });
+        }
+        if (vendor == L"Valve" || vendor == L"VALVE") {
+            return board == L"Jupiter" || board == L"Galileo";
+        }
+        if (vendor == L"LENOVO") {
+            constexpr std::wstring_view legion[]{L"83E1", L"83N0", L"83N1", L"83L3", L"83N6",
+                                                 L"83Q2", L"83Q3"};
+            const auto model = read_bios(L"SystemProductName");
+            return std::ranges::any_of(legion, [&](std::wstring_view id) {
+                return model.starts_with(id);
+            });
+        }
+        if (vendor.starts_with(L"Micro-Star") || vendor.starts_with(L"MICRO-STAR")) {
+            constexpr std::wstring_view claw[]{L"MS-1T41", L"MS-1T42", L"MS-1T52", L"MS-1T8K",
+                                               L"MS-1T91"};
+            return std::ranges::find(claw, board) != std::end(claw);
+        }
+        return false;
+    }();
+    if (handheld) {
+        return MemoryLayout::Memory_6Gb;
+    }
+#endif
+    return MemoryLayout::Memory_8Gb;
+}
 
 Values values;
 

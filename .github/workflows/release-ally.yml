@@ -328,16 +328,13 @@ jobs:
           3. All handheld optimizations - \`clang-cl\` 22 ThinLTO + PGO, Windows 11 hybrid CPU thread scheduling, UMA-safe memory and BC3 texture cache management, automatic DLSS to AMD FSR 3.1 replacement, Borderless Windowed Fullscreen, and **40 FPS** 120 Hz VRR Genlock - are enabled out of the box.
 
           ### What's New in ${VERSION_LABEL}
-          - **AMD Full 120K Shader Preparation (Dynamic Logic Op Conversion):** Converts NVIDIA-recorded shaders for AMD's Windows driver so "Preparing shaders" prepares all 120,461 shaders on AMD Radeon GPUs (Radeon 890M / 780M / RDNA 3.5) instead of skipping 116,373 shaders, completely eliminating shader compilation stutters when exploring new areas.
-          - **Fixed Title Bar Name & Version Display:** Window title bar now cleanly and correctly displays \`Lichii Ally | v6.0\` at idle and in-game, fixing the previous commit-hash and clipped name issue.
-          - **APU Conservative Texture Cache Budget (Fixes 94% RAM Freeze):** Caps the texture cache to 1536 MiB expected / 2048 MiB critical on integrated GPUs (Radeon 890M / 780M), preventing the texture cache from ballooning to 15 GB and exhausting 94% of physical RAM on 24 GB APUs.
-          - **Dynamic Resolution Scaling (DRS) Bilinear Neural Bypass:** Blits tonemapped frames bilinearly in *Ocarina of Time* across all dynamic resolutions (1440x810, 1120x630, 1024x576) using Fermi2D hardware acceleration, cleanly skipping heavy Tensor Core neural network shaders and restoring 40-60 FPS.
-          - **AMD Stability Tuning (EDS2 & Shader Libraries Safe Default):** Automatically disables buggy shader libraries (GPL) on AMD Windows proprietary drivers to prevent driver crashes, and standardizes Extended Dynamic State to EDS2.
-          - **Null Image View Upload Safeguard:** Protects \`PrepareImageView\` from attempting to process null image view IDs (\`NULL_IMAGE_VIEW_ID\`), preventing assertion failures and crashes during scene transitions.
-          - **Handheld Mode & Handheld Controls Out-of-the-Box:** Defaults to Handheld console mode and pre-binds controller profiles for smooth handheld gaming.
+          - **Safe Switch 2 12 GiB Layout with SEC_RESERVE:** Switch 2 titles retain the required 12 GiB virtual memory layout (`9809 MiB` Application Pool) to prevent guest allocator NULL-pointer crashes (`Sound/BusSet`), while `EDEN_NX2_SEC_RESERVE` commits physical host RAM strictly on demand.
+          - **Lower memory pressure on integrated GPUs:** Texture collection starts at 512 MiB, expects up to 1024 MiB, becomes critical at 1536 MiB, and evicts up to 80 images per aggressive pass. Windows trims the working set after shader preparation and reclaims zero-filled guest pages during the first three minutes of Switch 2 gameplay.
+          - **Xbox gamepad setup:** SDL can map a connected Xbox gamepad to the default keyboard-only profiles and select Handheld mode. Custom mappings are preserved.
+          - **Ally branding:** New application icon and a title bar that shows the packaged version.
 
           ### Recommended System Settings (ASUS ROG Xbox Ally X)
-          - **Armoury Crate SE VRAM:** **8 GB** (leaves 16 GB free for Windows, JIT, and shader compilation).
+          - **Armoury Crate SE VRAM:** Start with **6 GB** for the memory test. Restart the Ally after changing it.
           - **Display:** **1080p @ 120 Hz** with **AMD FreeSync Premium (VRR) Enabled** *(disable Radeon Anti-Lag, Radeon Boost, and AFMF in AMD Software)*.
           - **Operating Mode (TDP):** **17W-20W** for **40 FPS** battery play, **25W-30W** for **60 FPS**, or **13W-15W** for **30 FPS**.
 

@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <atomic>
 #include <memory>
+#include <optional>
+#include <thread>
 #include <utility>
 
 #include "game_settings.h"
@@ -41,6 +43,7 @@
 #include "core/file_sys/vfs/vfs_concat.h"
 #include "core/file_sys/vfs/vfs_real.h"
 #include "core/gpu_dirty_memory_manager.h"
+#include "core/hle/kernel/board/nintendo/nx/k_system_control.h"
 #include "core/hle/kernel/k_memory_manager.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_resource_limit.h"
@@ -124,13 +127,22 @@ FileSys::VirtualFile GetGameFileFromPath(const FileSys::VirtualFilesystem& vfs,
 
 namespace {
 
-// Detect the platform before initializing the kernel memory layout and guest clock.
-bool IsSwitch2Program(const FileSys::VirtualFile& file, u64 program_id, std::size_t program_index) {
-    FileSys::ProgramMetadata metadata;
+// Identify Switch 2 programs before initializing the kernel memory layout and guest clock.
+std::optional<u64> GetSwitch2ProgramId(const FileSys::VirtualFile& file, u64 program_id,
+                                      std::size_t program_index) {
+    const auto read_program_id = [](const FileSys::VirtualDir& exefs) -> std::optional<u64> {
+        const auto npdm = exefs != nullptr ? exefs->GetFile("main.npdm") : nullptr;
+        FileSys::ProgramMetadata metadata;
+        if (npdm == nullptr || metadata.Load(npdm) != Loader::ResultStatus::Success ||
+            !metadata.IsSwitch2()) {
+            return std::nullopt;
+        }
+        return metadata.GetTitleID();
+    };
     if (FileSys::NupContainer::IsNupFile(file)) {
         FileSys::NupContainer nup{file};
         if (nup.GetStatus() != Loader::ResultStatus::Success) {
-            return false;
+            return std::nullopt;
         }
         const auto base = nup.FindBasePackage();
         const auto update = nup.FindBestUpdatePackage();
@@ -140,31 +152,25 @@ bool IsSwitch2Program(const FileSys::VirtualFile& file, u64 program_id, std::siz
         } else if (base && nup.GetExeFSDir(*base) != nullptr) {
             program = base;
         }
-        const auto exefs = program ? nup.GetExeFSDir(*program) : nullptr;
-        const auto npdm = exefs != nullptr ? exefs->GetFile("main.npdm") : nullptr;
-        return npdm != nullptr && metadata.Load(npdm) == Loader::ResultStatus::Success &&
-               metadata.IsSwitch2();
+        return read_program_id(program ? nup.GetExeFSDir(*program) : nullptr);
     }
     const auto type = file != nullptr ? Loader::IdentifyFile(file) : Loader::FileType::Unknown;
     if (type == Loader::FileType::XCI || type == Loader::FileType::XCZ) {
         const FileSys::XCI xci{file, program_id, program_index};
         if (xci.GetStatus() != Loader::ResultStatus::Success) {
-            return false;
+            return std::nullopt;
         }
         const auto partition = xci.GetSecurePartitionNSP();
         const auto program = partition != nullptr
                                  ? partition->GetNCA(xci.GetProgramTitleID(),
                                                      FileSys::ContentRecordType::Program)
                                  : nullptr;
-        const auto exefs = program != nullptr ? program->GetExeFS() : nullptr;
-        const auto npdm = exefs != nullptr ? exefs->GetFile("main.npdm") : nullptr;
-        return npdm != nullptr && metadata.Load(npdm) == Loader::ResultStatus::Success &&
-               metadata.IsSwitch2();
+        return read_program_id(program != nullptr ? program->GetExeFS() : nullptr);
     }
     if (type == Loader::FileType::NSP || type == Loader::FileType::NSZ) {
         const FileSys::NSP nsp{file, program_id, program_index};
         if (nsp.GetStatus() != Loader::ResultStatus::Success) {
-            return false;
+            return std::nullopt;
         }
         auto exefs = nsp.GetExeFS();
         if (!nsp.IsExtractedType()) {
@@ -172,19 +178,16 @@ bool IsSwitch2Program(const FileSys::VirtualFile& file, u64 program_id, std::siz
                 nsp.GetNCA(nsp.GetProgramTitleID(), FileSys::ContentRecordType::Program);
             exefs = program != nullptr ? program->GetExeFS() : nullptr;
         }
-        const auto npdm = exefs != nullptr ? exefs->GetFile("main.npdm") : nullptr;
-        return npdm != nullptr && metadata.Load(npdm) == Loader::ResultStatus::Success &&
-               metadata.IsSwitch2();
+        return read_program_id(exefs);
     }
-    const auto dir = file != nullptr ? file->GetContainingDirectory() : nullptr;
-    const auto npdm = dir != nullptr ? dir->GetFile("main.npdm") : nullptr;
-    return npdm != nullptr && metadata.Load(npdm) == Loader::ResultStatus::Success &&
-           metadata.IsSwitch2();
+    return read_program_id(file != nullptr ? file->GetContainingDirectory() : nullptr);
 }
 
 } // namespace
 
 struct System::Impl {
+    using SystemControl = Kernel::Board::Nintendo::Nx::KSystemControl;
+
     explicit Impl(System& system)
         : kernel{system}, fs_controller{system}, hid_core{kernel}, cpu_manager{system},
           reporter{system}, applet_manager{system}, frontend_applets{system}, profile_manager{} {}
@@ -196,6 +199,7 @@ struct System::Impl {
 
         is_multicore = Settings::values.use_multi_core.GetValue();
         memory_layout = Settings::values.memory_layout_mode.GetValue();
+        backing_size = SystemControl::Init::GetIntendedMemorySize();
 
         core_timing.SetMulticore(is_multicore);
         core_timing.Initialize([&system]() { system.RegisterHostThread(); });
@@ -222,7 +226,8 @@ struct System::Impl {
         const bool must_reinitialize =
             !device_memory.has_value() ||
             is_multicore != Settings::values.use_multi_core.GetValue() ||
-            memory_layout != Settings::values.memory_layout_mode.GetValue();
+            memory_layout != Settings::values.memory_layout_mode.GetValue() ||
+            backing_size != SystemControl::Init::GetIntendedMemorySize();
 
         if (!must_reinitialize) {
             return;
@@ -295,6 +300,13 @@ struct System::Impl {
         kernel.SuspendEmulation(false);
         core_timing.SyncPause(false);
         is_paused.store(false, std::memory_order_relaxed);
+#ifdef _WIN32
+        if (Settings::CurrentProgramIsSwitch2() && device_memory && !zero_trim_worker.joinable()) {
+            zero_trim_worker = std::jthread{[memory = &*device_memory](std::stop_token stop) {
+                memory->TrimZeroPagesOnStartup(stop);
+            }};
+        }
+#endif
     }
 
     void Pause() {
@@ -372,10 +384,12 @@ struct System::Impl {
             fs_controller.InitTempStorage();
         }
 
-        const bool switch2_program =
-            virtual_filesystem != nullptr &&
-            IsSwitch2Program(GetGameFileFromPath(virtual_filesystem, filepath), params.program_id,
-                             params.program_index);
+        const auto switch2_program_id =
+            virtual_filesystem != nullptr
+                ? GetSwitch2ProgramId(GetGameFileFromPath(virtual_filesystem, filepath),
+                                      params.program_id, params.program_index)
+                : std::nullopt;
+        const bool switch2_program = switch2_program_id.has_value();
         Settings::SetCurrentProgramIsSwitch2(switch2_program);
         Settings::SetAstcRecompressionOverride(std::nullopt);
 
@@ -521,6 +535,9 @@ struct System::Impl {
     }
 
     void ShutdownMainProcess() {
+#ifdef _WIN32
+        zero_trim_worker = {};
+#endif
         debug_service.reset();
         // Waits for a call in progress (it opens the RomFS, a quick step).
         VideoCommon::Nx2Precompile::SetGameFiles(0, {});
@@ -625,6 +642,9 @@ struct System::Impl {
     std::optional<Core::PerfStats> perf_stats;
     std::optional<Tegra::Host1x::Host1x> host1x_core;
     std::optional<Core::DeviceMemory> device_memory;
+#ifdef _WIN32
+    std::jthread zero_trim_worker;
+#endif
     std::optional<AudioCore::AudioCore> audio_core;
     std::optional<Memory::CheatEngine> cheat_engine;
     std::optional<Tools::Freezer> memory_freezer;
@@ -655,6 +675,7 @@ struct System::Impl {
     std::atomic_bool is_powered_on{};
     bool is_multicore : 1 = false;
     Settings::MemoryLayout memory_layout{Settings::MemoryLayout::Memory_4Gb};
+    std::size_t backing_size{};
     bool exit_locked : 1 = false;
     bool exit_requested : 1 = false;
     bool nvdec_active : 1 = false;

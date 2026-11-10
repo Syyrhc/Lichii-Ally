@@ -151,6 +151,12 @@ void TextureCache<P>::RunGarbageCollector(bool out_of_memory) {
     bool evict_old_costly = false;
     u64 ticks_to_destroy = 0;
     size_t num_iterations = 0;
+    size_t aggressive_iterations = 40;
+    if constexpr (requires { runtime.IsIntegrated(); }) {
+        if (runtime.IsIntegrated()) {
+            aggressive_iterations = 80;
+        }
+    }
     const auto Configure = [&](bool allow_aggressive) {
         high_priority_mode = out_of_memory || total_used_memory >= expected_memory;
         aggressive_mode =
@@ -162,7 +168,7 @@ void TextureCache<P>::RunGarbageCollector(bool out_of_memory) {
             return value != nullptr ? std::strtoull(value, nullptr, 10) : 0ULL;
         }();
         ticks_to_destroy = (std::max)(ticks_to_destroy, min_age);
-        num_iterations = aggressive_mode ? 40 : (high_priority_mode ? 20 : 10);
+        num_iterations = aggressive_mode ? aggressive_iterations : (high_priority_mode ? 20 : 10);
     };
     const auto Cleanup = [this, &num_iterations, &high_priority_mode, &aggressive_mode,
                           &evict_old_costly, out_of_memory](ImageId image_id) {
@@ -421,28 +427,40 @@ void TextureCache<P>::ApplyThresholdOverrides(bool log) {
     // MaxCriticalMemory on rather than near the card's budget. Larger cards get 5/8 of the
     // driver's budget (GetDeviceLocalMemory is capped near 7 GiB): at 5 GiB title 1's races
     // recreate and upload ~8 MiB of render targets a frame (16 GB card: 53 -> 59 fps at 10 GiB).
-    // 5/8 of the budget only passes 5 GiB above an 8 GiB budget, so cards up to 8 GB (and
-    // integrated GPUs, whose budget is capped at 4-6 GiB) keep the 5 GiB cap.
+    // 5/8 of the budget only passes 5 GiB above an 8 GiB budget. Integrated GPUs use lower
+    // thresholds because their device-local memory is shared with the host.
     u64 max_critical = MaxCriticalMemory;
     if constexpr (requires { runtime.GetDeviceMemoryBudget(); }) {
         max_critical = (std::max)(max_critical, runtime.GetDeviceMemoryBudget() / 8 * 5);
     }
+    bool integrated = false;
     if constexpr (requires { runtime.IsIntegrated(); }) {
-        if (runtime.IsIntegrated()) {
-            max_critical = (std::min)(max_critical, u64{2048_MiB});
-        }
+        integrated = runtime.IsIntegrated();
+    }
+    u64 expected_spacing = 768_MiB;
+    if (integrated) {
+        constexpr u64 max_integrated_expected = 1024_MiB;
+        max_critical = 1536_MiB;
+        expected_spacing = max_critical - max_integrated_expected;
     }
     critical_memory = (std::min)(critical_memory, max_critical);
-    expected_memory =
-        (std::min)(expected_memory, critical_memory - (std::min)(critical_memory, u64{768_MiB}));
+    expected_memory = (std::min)(expected_memory,
+                                 critical_memory - (std::min)(critical_memory, expected_spacing));
+    const u64 min_spacing = integrated ? u64{512_MiB} : u64{1_GiB};
     minimum_memory =
-        (std::min)(minimum_memory, expected_memory - (std::min)(expected_memory, u64{1_GiB}));
+        (std::min)(minimum_memory, expected_memory - (std::min)(expected_memory, min_spacing));
     // EDEN_NX2_TC_EXPECTED_MIB / EDEN_NX2_TC_CRITICAL_MIB override the collector's thresholds.
+    // On integrated GPUs, these overrides can only lower the current thresholds.
     for (const auto& [name, target] : {std::pair{"EDEN_NX2_TC_EXPECTED_MIB", &expected_memory},
                                        std::pair{"EDEN_NX2_TC_CRITICAL_MIB", &critical_memory}}) {
         if (const char* value = std::getenv(name)) {
-            *target = std::strtoull(value, nullptr, 10) << 20;
+            const u64 bytes = std::strtoull(value, nullptr, 10) << 20;
+            *target = integrated ? (std::min)(*target, bytes) : bytes;
         }
+    }
+    if (integrated) {
+        expected_memory = (std::min)(expected_memory, critical_memory);
+        minimum_memory = (std::min)(minimum_memory, expected_memory);
     }
     if (log) {
         LOG_INFO(HW_GPU, "Texture cache thresholds: expected {} MiB, critical {} MiB, minimum {} MiB",
@@ -480,7 +498,8 @@ void TextureCache<P>::TickFrame() {
         // unused. Both thresholds stay under it with a margin (1/8 of it, at most 1 GiB): past it
         // allocations fail and images end up unbacked (garbage textures), and Windows shrinks the
         // budget as the card fills (16 GB card: 13.5 GB left mid-race), hence the re-read every 30
-        // frames. EDEN_NX2_TC_*_MIB overrides still win.
+        // frames. EDEN_NX2_TC_*_MIB can lower thresholds on integrated GPUs and override them
+        // elsewhere.
         if constexpr (requires { runtime.GetDeviceMemoryBudget(); }) {
             if constexpr (requires { runtime.MemoryPressureEvents(); }) {
                 // Images that did not fit (made in host memory or with nothing bound) mean the

@@ -270,7 +270,7 @@ target_link_libraries(common PRIVATE lz4::lz4 zstd::zstd)
 
 # Please refer to src/common/demangle.cpp
 if (WIN32)
-    target_link_libraries(common PRIVATE LLVM::Demangle)
+    target_link_libraries(common PRIVATE LLVM::Demangle advapi32)
 endif()
 
 if(ANDROID)

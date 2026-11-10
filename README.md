@@ -7,7 +7,7 @@
 -->
 
 <p align="center">
-  <img src="dist/branding/lichii_icon_with_logo.png" alt="Lichii Ally" width="520">
+  <img src="dist/branding/lichii_ally_1024.png" alt="Lichii Ally" width="320">
 </p>
 
 <h1 align="center">Lichii Ally</h1>
@@ -88,7 +88,8 @@ Testing on an ASUS ROG Xbox Ally X, ROG Ally (Z1E / X), Lenovo Legion Go, MSI Cl
 
 | Component | Recommended Setting | Technical Rationale |
 |---|---|---|
-| **Armoury Crate SE - GPU Memory (VRAM)** | **8 GB** | Balances 8 GB dedicated to the Radeon 890M with 16 GB available for Windows, guest DRAM, and shader caches. |
+| **Armoury Crate SE - GPU Memory (VRAM)** | **6 GB** for the first memory test | Reserves 2 GB less RAM for the GPU than the 8 GB setting. Restart the Ally after changing it. |
+| **Lichii - Memory Layout for Ocarina of Time** | **6 GiB DRAM** | v6.1 defaults to this layout on detected ROG Ally models. You can select 8 GiB or 12 GiB in the game's settings if it runs out of guest memory. |
 | **Windows Display Settings** | **1080p @ 120 Hz + FreeSync (VRR) Enabled** | Enables exact `120 Hz / 3` Genlock cadence at 40 FPS and absorbs minor frame-time variance. |
 | **AMD Software: Adrenalin Edition** | **Disable Radeon Anti-Lag, Radeon Boost, and AFMF** | Prevents driver-level frame queues from interfering with the emulator's internal low-latency host pacer. |
 | **Operating Mode (TDP)** | **17W-20W** (40 FPS) / **25W-30W** (60 FPS) / **13W-15W** (30 FPS) | Matches APU package power to your selected target frame rate and 80 Wh battery life goal. |

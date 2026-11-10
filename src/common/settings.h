@@ -25,6 +25,7 @@
 namespace Settings {
 
 const char* TranslateCategory(Settings::Category category);
+MemoryLayout GetDefaultMemoryLayout();
 
 struct ResolutionScalingInfo {
     u32 up_scale{1};
@@ -206,7 +207,7 @@ struct Values {
     SwitchableSetting<bool> use_multi_core{linkage, true, "use_multi_core", Category::Core};
     // 8 GB: Ocarina of Time's own memory size (the Frizti builds are tuned for it).
     SwitchableSetting<MemoryLayout, true> memory_layout_mode{linkage,
-                                                             MemoryLayout::Memory_8Gb,
+                                                             GetDefaultMemoryLayout(),
                                                              "memory_layout_mode",
                                                              Category::Core,
                                                              Specialization::Default,

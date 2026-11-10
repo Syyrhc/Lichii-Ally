@@ -23,7 +23,7 @@ std::string_view Trim(std::string_view text) {
 } // namespace
 
 std::vector<BasicSetting*> TunedSettings(Values& values) {
-    // One line per setting; bump Revision when this list or a default here changes.
+    // Bump Revision when changing tuned defaults that must be reapplied to existing configs.
     return {
         &values.gpu_accuracy,             // Low
         &values.dma_accuracy,             // Default
@@ -31,8 +31,6 @@ std::vector<BasicSetting*> TunedSettings(Values& values) {
         &values.vsync_mode,               // Mailbox: the host frame pacer times presents
         &values.async_presentation,       // On: the host frame pacer runs on the present thread
         &values.use_asynchronous_shaders, // On: unbuilt pipelines skip draws, no freeze
-        &values.use_docked_mode,          // Docked
-        &values.memory_layout_mode,       // 8 GB: Ocarina's own memory size
         &values.nvdec_emulation,          // GPU: Ocarina's cutscene videos
         &values.scaling_filter,           // ScaleForce (newer Lichii builds seed FSR)
         &values.resolution_setup,         // 1x: a higher scale left over from other games costs fps

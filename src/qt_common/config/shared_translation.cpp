@@ -64,9 +64,8 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
            tr("This option increases CPU emulation thread use from 1 to the maximum of 4.\n"
               "This is mainly a debug option and shouldn't be disabled."));
     INSERT(Settings, memory_layout_mode, tr("Memory Layout"),
-           tr("Increases the amount of emulated RAM.\nDoesn't affect performance/stability but may "
-              "allow HD texture "
-              "mods to load."));
+           tr("Sets the amount of emulated RAM. A smaller layout can reduce host memory pressure. "
+              "Some games and HD texture mods may need a larger layout."));
     INSERT(Settings, use_speed_limit, QString(), QString());
     INSERT(Settings, current_speed_mode, QString(), QString());
     INSERT(Settings, speed_limit, tr("Limit Speed Percent"),

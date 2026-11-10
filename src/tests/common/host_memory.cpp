@@ -6,7 +6,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <cstring>
+#include <windows.h>
+#include <psapi.h>
+#include "common/memory_detect.h"
+#else
 #include <unistd.h>
 #endif
 
@@ -66,6 +71,39 @@ TEST_CASE("HostMemory: Aligned contiguous map", "[common]") {
     REQUIRE(mem.BackingBasePointer()[0x85fff] == 2);
     REQUIRE(mem.BackingBasePointer()[0x8ffff] == 3);
 }
+
+#ifdef _WIN32
+TEST_CASE("HostMemory: Trimming zero pages preserves guest memory", "[common]") {
+    constexpr size_t Page = 0x1000;
+    HostMemory mem(16_MiB, 32_MiB);
+    REQUIRE(mem.BackingBasePointer() != nullptr);
+    REQUIRE(mem.VirtualBasePointer() != nullptr);
+    mem.Map(0x10000, 0x100000, 2 * Page, PERMS, HEAP);
+    u8* const view = mem.VirtualBasePointer() + 0x10000;
+    u8* const backing = mem.BackingBasePointer() + 0x100000;
+    u8* const backing_only = mem.BackingBasePointer() + 0x400000;
+    std::memset(view, 0, Page);
+    std::memset(view + Page, 0x5a, Page);
+    std::memset(backing_only, 0, Page);
+
+    const auto resident = [](void* address) {
+        PSAPI_WORKING_SET_EX_INFORMATION info{};
+        info.VirtualAddress = address;
+        REQUIRE(K32QueryWorkingSetEx(GetCurrentProcess(), &info, sizeof(info)));
+        return info.VirtualAttributes.Valid != 0;
+    };
+    REQUIRE(resident(view));
+    REQUIRE(resident(backing_only));
+    REQUIRE(mem.TrimZeroPages(Common::GetProcessMemoryUsage().working_set) >= 2 * Page);
+    CHECK_FALSE(resident(view));
+    CHECK_FALSE(resident(backing_only));
+    CHECK(resident(view + Page));
+    CHECK(backing[0] == 0);
+    CHECK(backing_only[0] == 0);
+    CHECK(backing[Page] == 0x5a);
+    CHECK(backing[2 * Page - 1] == 0x5a);
+}
+#endif
 
 TEST_CASE("HostMemory: Simple mirror map", "[common]") {
     if (!MapsSingleGuestPages()) {

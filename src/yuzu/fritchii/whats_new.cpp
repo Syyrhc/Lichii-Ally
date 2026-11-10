@@ -85,11 +85,7 @@ void SetNotes(QTextBrowser* browser, const QString& markdown) {
 }
 
 QString VersionName() {
-    QString version = QString::fromUtf8(Common::g_build_version);
-    if (!version.isEmpty() && !version.startsWith(QLatin1Char('v'))) {
-        version.prepend(QLatin1Char('v'));
-    }
-    return QStringLiteral("Fritchii %1").arg(version).trimmed();
+    return QString::fromUtf8(Common::g_build_fullname).trimmed();
 }
 
 bool ShouldShowWhatsNew(bool used_before) {

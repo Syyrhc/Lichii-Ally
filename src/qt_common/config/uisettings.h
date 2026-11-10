@@ -110,6 +110,8 @@ struct Values {
                                                            true};
 
     Setting<bool> first_start{linkage, true, "firstStart", Category::Ui};
+    Setting<bool> ally_auto_mapped_controller{linkage, false, "allyAutoMappedController",
+                                             Category::Ui};
     // The shader warm-up told the player once to raise the NVIDIA shader cache size.
     Setting<bool> shader_warm_cache_tip_shown{linkage, false, "shaderWarmCacheTipShown",
                                               Category::Ui};

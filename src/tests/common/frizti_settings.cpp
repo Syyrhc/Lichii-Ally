@@ -15,7 +15,7 @@ void SetOtherBuildValues(Settings::Values& values) {
     values.vsync_mode.SetValue(Settings::VSyncMode::Fifo);
     values.async_presentation.SetValue(false);
     values.use_asynchronous_shaders.SetValue(false);
-    values.use_docked_mode.SetValue(Settings::ConsoleMode::Handheld);
+    values.use_docked_mode.SetValue(Settings::ConsoleMode::Docked);
     values.memory_layout_mode.SetValue(Settings::MemoryLayout::Memory_4Gb);
     values.nvdec_emulation.SetValue(Settings::NvdecEmulation::Cpu);
     values.scaling_filter.SetValue(Settings::ScalingFilter::Fsr3);
@@ -28,8 +28,6 @@ void CheckFriztiValues(const Settings::Values& values) {
     CHECK(values.vsync_mode.GetValue() == Settings::VSyncMode::Mailbox);
     CHECK(values.async_presentation.GetValue());
     CHECK(values.use_asynchronous_shaders.GetValue());
-    CHECK(values.use_docked_mode.GetValue() == Settings::ConsoleMode::Docked);
-    CHECK(values.memory_layout_mode.GetValue() == Settings::MemoryLayout::Memory_8Gb);
     CHECK(values.nvdec_emulation.GetValue() == Settings::NvdecEmulation::Gpu);
     CHECK(values.scaling_filter.GetValue() == Settings::ScalingFilter::ScaleForce);
 }
@@ -48,8 +46,13 @@ TEST_CASE("A new revision sets every tuned setting", "[frizti_settings]") {
     SetOtherBuildValues(*values);
     const auto tuned = Frizti::TunedSettings(*values);
     const auto changes = Frizti::ReconcileGlobal(tuned, {}, true);
-    CHECK(changes.size() == tuned.size());
+    CHECK_FALSE(changes.empty());
+    for (const auto* setting : tuned) {
+        CHECK(setting->ToStringGlobal() == setting->DefaultToString());
+    }
     CheckFriztiValues(*values);
+    CHECK(values->use_docked_mode.GetValue() == Settings::ConsoleMode::Docked);
+    CHECK(values->memory_layout_mode.GetValue() == Settings::MemoryLayout::Memory_4Gb);
     CHECK(Frizti::ReconcileGlobal(tuned, {}, true).empty());
 }
 
@@ -74,7 +77,7 @@ TEST_CASE("Between revisions only another build's changes are undone", "[frizti_
           "use_vsync: Fifo -> Mailbox, scaling_filter: Fsr3 -> ScaleForce");
 }
 
-TEST_CASE("Ocarina's per-game overrides go back to global", "[frizti_settings]") {
+TEST_CASE("Ocarina's tuned per-game overrides go back to global", "[frizti_settings]") {
     auto values = std::make_unique<Settings::Values>();
     const auto tuned = Frizti::TunedSettings(*values);
     const auto override_value = [](auto& setting, auto value) {
@@ -83,12 +86,14 @@ TEST_CASE("Ocarina's per-game overrides go back to global", "[frizti_settings]")
     };
     override_value(values->gpu_accuracy, Settings::GpuAccuracy::High);
     override_value(values->vsync_mode, Settings::VSyncMode::Fifo);
+    override_value(values->memory_layout_mode, Settings::MemoryLayout::Memory_4Gb);
 
-    SECTION("a new revision drops every override") {
+    SECTION("a new revision drops tuned overrides") {
         const auto changes = Frizti::ReconcilePerGame(tuned, {}, true);
         CHECK(changes.size() == 2);
         CHECK(values->gpu_accuracy.UsingGlobal());
         CHECK(values->vsync_mode.UsingGlobal());
+        CHECK_FALSE(values->memory_layout_mode.UsingGlobal());
         CHECK(changes[0].label == "0400486024DEC000 gpu_accuracy");
         CHECK(changes[0].to == "global");
     }
@@ -96,13 +101,14 @@ TEST_CASE("Ocarina's per-game overrides go back to global", "[frizti_settings]")
     SECTION("overrides Frizti wrote are kept between revisions") {
         Frizti::Record record;
         record.per_game = Frizti::PerGameValues(tuned);
-        override_value(values->memory_layout_mode, Settings::MemoryLayout::Memory_4Gb);
+        override_value(values->dma_accuracy, Settings::DmaAccuracy::Safe);
         const auto changes = Frizti::ReconcilePerGame(tuned, record, false);
         REQUIRE(changes.size() == 1);
-        CHECK(changes[0].label == "0400486024DEC000 memory_layout_mode");
+        CHECK(changes[0].label == "0400486024DEC000 dma_accuracy");
         CHECK_FALSE(values->gpu_accuracy.UsingGlobal());
         CHECK_FALSE(values->vsync_mode.UsingGlobal());
-        CHECK(values->memory_layout_mode.UsingGlobal());
+        CHECK_FALSE(values->memory_layout_mode.UsingGlobal());
+        CHECK(values->dma_accuracy.UsingGlobal());
     }
 
     for (const auto& restore : values->linkage.restore_functions) {
@@ -112,6 +118,7 @@ TEST_CASE("Ocarina's per-game overrides go back to global", "[frizti_settings]")
 
 TEST_CASE("Docked mode replaces the handheld controller", "[frizti_settings]") {
     auto values = std::make_unique<Settings::Values>();
+    values->use_docked_mode.SetValue(Settings::ConsoleMode::Docked);
     values->players.GetValue(true)[0].controller_type = Settings::ControllerType::Handheld;
     CHECK(Frizti::FixDockedController(*values).size() == 1);
     CHECK(values->players.GetValue(true)[0].controller_type ==

@@ -28,11 +28,12 @@ static MemoryInfo Detect() {
     MemoryInfo mem_info{};
 
 #ifdef _WIN32
-    MEMORYSTATUSEX memorystatus;
+    MEMORYSTATUSEX memorystatus{};
     memorystatus.dwLength = sizeof(memorystatus);
-    GlobalMemoryStatusEx(&memorystatus);
-    mem_info.TotalPhysicalMemory = memorystatus.ullTotalPhys;
-    mem_info.TotalSwapMemory = memorystatus.ullTotalPageFile - mem_info.TotalPhysicalMemory;
+    if (GlobalMemoryStatusEx(&memorystatus)) {
+        mem_info.TotalPhysicalMemory = memorystatus.ullTotalPhys;
+        mem_info.TotalSwapMemory = memorystatus.ullTotalPageFile - mem_info.TotalPhysicalMemory;
+    }
 #elif defined(__APPLE__)
     u64 ramsize;
     struct xsw_usage vmusage;

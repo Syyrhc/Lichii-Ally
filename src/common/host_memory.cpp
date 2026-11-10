@@ -10,6 +10,7 @@
 #include "common/container/unordered_map.h"
 #include <boost/icl/separate_interval_set.hpp>
 #include <windows.h>
+#include <psapi.h>
 #include "common/dynamic_library.h"
 
 #else // ^^^ Windows ^^^ vvv POSIX vvv
@@ -53,9 +54,12 @@
 #endif // ^^^ POSIX ^^^
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
+#include <new>
 #include <random>
 #include <vector>
 
@@ -309,6 +313,19 @@ public:
             return false;
         }
         return true;
+    }
+
+    std::optional<size_t> BackingOffset(size_t virtual_offset) {
+        std::scoped_lock lock{placeholder_mutex};
+        const auto it = placeholders.find(virtual_offset);
+        if (it == placeholders.end()) {
+            return std::nullopt;
+        }
+        const auto host_pointer = placeholder_host_pointers.find(it->lower());
+        if (host_pointer == placeholder_host_pointers.end()) {
+            return std::nullopt;
+        }
+        return host_pointer->second + virtual_offset - it->lower();
     }
 
     void* Allocate(size_t size) {
@@ -1151,6 +1168,106 @@ void HostMemory::HintCold(size_t physical_offset, size_t length,
         hint(virtual_base + *virtual_offset);
     }
 }
+
+#ifdef _WIN32
+// Based on Ghostwolf13 and Zortos's guest-page trim (Lichii #431 and #961).
+size_t HostMemory::TrimZeroPages(u64 working_set, std::stop_token stop) const try {
+    if (backing_base == nullptr || stop.stop_requested()) {
+        return 0;
+    }
+    constexpr size_t Slack = size_t{1} << 16;
+    constexpr size_t MaxEntries = size_t{1} << 23;
+    const auto estimate = (std::min<u64>)(working_set / PageAlignment + Slack, MaxEntries);
+    std::vector<ULONG_PTR> entries(static_cast<size_t>(estimate));
+    const auto process = GetCurrentProcess();
+    while (!K32QueryWorkingSet(process, entries.data(),
+                              static_cast<DWORD>(entries.size() * sizeof(ULONG_PTR)))) {
+        if (GetLastError() != ERROR_BAD_LENGTH || entries.size() == MaxEntries ||
+            stop.stop_requested()) {
+            return 0;
+        }
+        entries.resize((std::min)((std::max)(entries.size() * 2, size_t{entries[0]} + Slack),
+                                  MaxEntries));
+    }
+
+    const auto backing_begin = reinterpret_cast<uintptr_t>(backing_base);
+    const auto view_begin = reinterpret_cast<uintptr_t>(virtual_base);
+    const size_t count = (std::min)(size_t{entries[0]}, entries.size() - 1);
+    std::vector<uintptr_t> backing_pages;
+    std::vector<uintptr_t> view_pages;
+    for (size_t i = 1; i <= count; ++i) {
+        const uintptr_t page = entries[i] & ~uintptr_t{PageAlignment - 1};
+        if (page - backing_begin < backing_size) {
+            backing_pages.push_back(page);
+        } else if (view_begin != 0 && page - view_begin < virtual_size) {
+            view_pages.push_back(page);
+        }
+    }
+    std::ranges::sort(backing_pages);
+
+    static constexpr std::array<u8, PageAlignment> ZeroPage{};
+    const auto is_zero = [](uintptr_t page) {
+        return std::memcmp(reinterpret_cast<const void*>(page), ZeroPage.data(), PageAlignment) ==
+               0;
+    };
+    std::vector<uintptr_t> trim;
+    size_t zero_bytes = 0;
+    for (const auto page : backing_pages) {
+        if (stop.stop_requested()) {
+            return 0;
+        }
+        if (is_zero(page)) {
+            trim.push_back(page);
+            zero_bytes += PageAlignment;
+        }
+    }
+    // The backing view stays mapped while guest views can be unmapped or protected.
+    for (const auto page : view_pages) {
+        if (stop.stop_requested()) {
+            break;
+        }
+        const auto offset = impl->BackingOffset(page - view_begin + virtual_base_offset);
+        if (!offset || *offset >= backing_size) {
+            continue;
+        }
+        if (commit_on_use &&
+            (granules[*offset >> GranuleShift].load(std::memory_order_acquire) & GranuleCommitted) ==
+                0) {
+            continue;
+        }
+        const auto backing_page = backing_begin + *offset;
+        if (is_zero(backing_page)) {
+            trim.push_back(page);
+            zero_bytes += PageAlignment;
+        }
+        // The scan may have faulted in the backing alias. Return it to its former state.
+        if (!std::ranges::binary_search(backing_pages, backing_page)) {
+            trim.push_back(backing_page);
+        }
+    }
+
+    // VirtualUnlock leaves the contents intact, including writes racing the zero check.
+    std::ranges::sort(trim);
+    trim.erase(std::unique(trim.begin(), trim.end()), trim.end());
+    for (size_t i = 0; i < trim.size();) {
+        size_t end = i + 1;
+        while (end < trim.size() && trim[end] == trim[end - 1] + PageAlignment) {
+            ++end;
+        }
+        if (!VirtualUnlock(reinterpret_cast<void*>(trim[i]), (end - i) * PageAlignment) &&
+            GetLastError() != ERROR_NOT_LOCKED) {
+            // A run may cross adjacent mapped views.
+            for (size_t page = i; page < end; ++page) {
+                VirtualUnlock(reinterpret_cast<void*>(trim[page]), PageAlignment);
+            }
+        }
+        i = end;
+    }
+    return zero_bytes;
+} catch (const std::bad_alloc&) {
+    return 0;
+}
+#endif
 
 void HostMemory::ClearBackingRegion(size_t physical_offset, size_t length, u32 fill_value) {
     if (length == 0) {

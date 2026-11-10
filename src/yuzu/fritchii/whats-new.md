@@ -4,13 +4,14 @@ e.g. E:\OotRemakeEmulation\release\fritchii-vX\notes.md) here before the release
 download instructions at the top are dropped in the app. While this file holds only this comment,
 no "What's new" window pops up after an update (Help > What's New says there are no notes yet).
 -->
-## ⬇️ Download this file: **`Fritchii-v5.5-Windows-x64.zip`**
+### Lichii Ally v6.1
 
-On Fritchii v4 to v5.4 you don't need to download anything: it offers this update when you open it. Otherwise unzip it anywhere and run `Fritchii-v5.5\lichii.exe`. Don't download "Source code (zip)" or "Source code (tar.gz)": they contain no emulator.
+- **Switch 2 memory safety with gradual commit.** Switch 2 titles keep the 12 GiB virtual memory layout required by guest allocators (`EDEN_NX2_SEC_RESERVE` commits physical host RAM only as pages are used), while Switch 1 defaults to 6 GiB on detected Windows handhelds.
+- **Integrated GPU memory.** Texture collection starts at 512 MiB (1024 MiB expected, 1536 MiB critical). Windows trims the working set after shader preparation and evicts zero-filled guest pages during early gameplay.
+- **Xbox controller setup.** A connected SDL Xbox gamepad can replace the default keyboard bindings and select Handheld mode. Custom mappings are preserved.
+- **New Lichii Ally icon.** The title bar shows the installed build version.
 
----
-
-Fritchii v5.5, fixes.
+### Fritchii v5.5
 
 - **No more flickering camera for players who had frame generation on before v5.** Fritchii has no frame generation, but an old setting kept it running in the background (and turned off Fritchii's frame pacing). It can't run anymore.
 - **Extended Dynamic State is set back to EDS2 once.** Players who set it to Disabled or EDS3 (often an old AMD crash tip) had "Preparing shaders" skip almost every shader. EDS2 is what the shaders are recorded with, and the AMD crash that tip avoided is fixed since v5.3. You can still change it afterwards.

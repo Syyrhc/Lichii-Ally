@@ -89,6 +89,7 @@
 #include "video_core/gpu_logging/gpu_logging.h"
 #ifdef _WIN32
 #include <windows.h> // already in through vulkan.h, for the disk cache reader
+#include <psapi.h>
 #else
 #include <fcntl.h>
 #include <unistd.h>
@@ -2812,6 +2813,25 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
              boot_stream ? "; records streamed: " + StreamTotalsText(boot_stream->Totals())
                          : std::string{"; records in memory"});
     boot_stream.reset();
+
+#ifdef _WIN32
+    if (device.IsIntegrated() && state.built != 0 && !stop_loading.stop_requested()) {
+        const auto before = Common::GetProcessMemoryUsage();
+        // The boot workers have finished. Trim once before the game can touch the pages.
+        if (K32EmptyWorkingSet(GetCurrentProcess())) {
+            const auto after = Common::GetProcessMemoryUsage();
+            LOG_INFO(Render_Vulkan,
+                     "Post-prebuild working set: {} -> {} MiB; available RAM: {} -> {} MiB; "
+                     "private commit: {} -> {} MiB",
+                     before.working_set >> 20, after.working_set >> 20,
+                     before.available_physical >> 20, after.available_physical >> 20,
+                     before.private_bytes >> 20, after.private_bytes >> 20);
+        } else {
+            LOG_WARNING(Render_Vulkan, "Post-prebuild working-set trim failed: {}",
+                        GetLastError());
+        }
+    }
+#endif
 
     const size_t background_count =
         (std::min)(deferred_graphics.size(), BackgroundPipelineLimit(queued_graphics));
