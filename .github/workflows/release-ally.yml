@@ -1,0 +1,362 @@
+name: release-ally
+run-name: Lichii-Ally (${{ inputs.release_tag || github.ref_name }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag (defaults to the version in dist/ally_version.txt)
+        type: string
+        default: ""
+      publish_release:
+        description: Publish the binaries as a GitHub Release
+        type: boolean
+        default: true
+  push:
+    branches:
+      - "codex/ally-*"
+      - "main"
+    tags:
+      - "ally-v*"
+
+permissions:
+  contents: read
+
+env:
+  WINDOWS_LLVM_VERSION: "22.1.8"
+  WINDOWS_LLVM_SHA256: "16e5709785fef73c854646241c4a92c5cd574318d1b33c63330dd7721903e55c"
+  PGO_PROFILE: "lichii-windows.profdata"
+
+concurrency:
+  group: release-ally-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare-release:
+    name: Prepare Ally release metadata
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version_label: ${{ steps.meta.outputs.version_label }}
+      should_publish: ${{ steps.meta.outputs.should_publish }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Determine tag and version
+        id: meta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          INPUT_PUBLISH: ${{ inputs.publish_release }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF_NAME}"
+            should_publish="true"
+          else
+            ally_num="$(tr -d '[:space:]' < dist/ally_version.txt)"
+            tag="${INPUT_TAG:-ally-v${ally_num}}"
+            should_publish="${INPUT_PUBLISH:-true}"
+          fi
+
+          if [[ ! "$tag" =~ ^ally-v([0-9]+(\.[0-9]+)*)$ ]]; then
+            echo "Invalid Ally release tag: $tag" >&2
+            exit 1
+          fi
+          version_label="v${BASH_REMATCH[1]}"
+
+          if [[ "$should_publish" == "true" && "${GITHUB_REF}" != refs/tags/* ]]; then
+            if ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$tag" >/dev/null 2>&1; then
+              gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+                -f "ref=refs/tags/$tag" -f "sha=$GITHUB_SHA"
+            fi
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version_label=$version_label" >> "$GITHUB_OUTPUT"
+          echo "should_publish=$should_publish" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Windows ${{ matrix.variant }} (PGO + ThinLTO)
+    needs: prepare-release
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      SCCACHE_DIR: ${{ github.workspace }}/.sccache
+      SCCACHE_CACHE_SIZE: 3G
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: Xbox-Ally-X-AVX512
+            preset: v4
+          - variant: Universal-AVX2
+            preset: v3
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Synchronize application version with release tag
+        shell: bash
+        env:
+          VERSION_LABEL: ${{ needs.prepare-release.outputs.version_label }}
+        run: printf '%s\n' "${VERSION_LABEL#v}" > dist/ally_version.txt
+
+      - name: Verify Windows PGO profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$PGO_PROFILE"
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install LLVM clang-cl on Windows
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'llvm.exe'
+          Invoke-WebRequest -OutFile $installer "https://github.com/llvm/llvm-project/releases/download/llvmorg-$env:WINDOWS_LLVM_VERSION/LLVM-$env:WINDOWS_LLVM_VERSION-win64.exe"
+          if ((Get-FileHash -Algorithm SHA256 $installer).Hash -ne $env:WINDOWS_LLVM_SHA256) {
+            throw 'LLVM installer checksum mismatch'
+          }
+          $root = Join-Path $env:RUNNER_TEMP 'llvm'
+          Start-Process -Wait -FilePath $installer -ArgumentList '/S', "/D=$root"
+          $version = & "$root/bin/clang-cl.exe" --version
+          $version
+          if (-not ($version -match "clang version $([regex]::Escape($env:WINDOWS_LLVM_VERSION))")) {
+            throw "Unexpected clang-cl: $version"
+          }
+          "LLVM_ROOT=$($root.Replace('\', '/'))" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Install Qt 6.8.3 on Windows
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtcharts
+          cache: true
+
+      - name: Install sccache on Windows
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'sccache.zip'
+          Invoke-WebRequest -OutFile $zip https://github.com/mozilla/sccache/releases/download/v0.19.0/sccache-v0.19.0-x86_64-pc-windows-msvc.zip
+          Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'sccache')
+          $bin = (Get-ChildItem -Recurse -Filter sccache.exe (Join-Path $env:RUNNER_TEMP 'sccache')).DirectoryName
+          $bin | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Install Vulkan SDK on Windows
+        shell: pwsh
+        run: ./tools/windows/install-vulkan-sdk.ps1
+
+      - name: Verify Vulkan tools on Windows
+        shell: pwsh
+        run: glslangValidator --version
+
+      - name: Restore CPM downloads
+        id: cpm-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .cache/cpm
+          key: cpm-ally-win-v1-${{ hashFiles('cpmfile.json', 'CMakeLists.txt', 'CMakeModules/CPM*.cmake', 'externals/**/CMakeLists.txt', 'src/**/CMakeLists.txt') }}
+          restore-keys: |
+            cpm-ally-win-v1-
+
+      - name: Restore compiler objects
+        id: compiler-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .sccache
+          key: objects-ally-${{ matrix.preset }}-${{ hashFiles('lichii-windows.profdata') }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            objects-ally-${{ matrix.preset }}-${{ hashFiles('lichii-windows.profdata') }}-${{ github.sha }}-
+            objects-ally-${{ matrix.preset }}-${{ hashFiles('lichii-windows.profdata') }}-
+
+      - name: Configure Lichii Ally (${{ matrix.variant }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags="-DWIN32 -D_WINDOWS -DNOMINMAX -flto=thin"
+          flags+=" -fprofile-use=$(cygpath -m "$PWD/$PGO_PROFILE")"
+          flags+=" -Wno-error=profile-instr-out-of-date -Wno-error=profile-instr-unprofiled"
+          flags+=" -Wno-error=backend-plugin"
+          cmake -S . -B build/release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DYUZU_BUILD_PRESET=${{ matrix.preset }} \
+            -DBUILD_TESTING=OFF \
+            -DYUZU_TESTS=OFF \
+            -DYUZU_CMD=ON \
+            -DYUZU_ROOM=OFF \
+            -DYUZU_ROOM_STANDALONE=OFF \
+            -DYUZU_USE_BUNDLED_QT=OFF \
+            -DYUZU_USE_BUNDLED_SDL3=ON \
+            -DENABLE_UPDATE_CHECKER=OFF \
+            -DUSE_DISCORD_PRESENCE=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+            "-DCMAKE_C_COMPILER=$LLVM_ROOT/bin/clang-cl.exe" \
+            "-DCMAKE_CXX_COMPILER=$LLVM_ROOT/bin/clang-cl.exe" \
+            "-DCMAKE_LINKER=$LLVM_ROOT/bin/lld-link.exe" \
+            "-DCMAKE_AR=$LLVM_ROOT/bin/llvm-lib.exe" \
+            "-DCMAKE_C_FLAGS=$flags" \
+            "-DCMAKE_CXX_FLAGS=-EHsc $flags"
+
+      - name: Save CPM downloads
+        if: steps.cpm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/cpm
+          key: ${{ steps.cpm-cache.outputs.cache-primary-key }}
+
+      - name: Build Lichii Ally (${{ matrix.variant }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          sccache --zero-stats
+          cmake --build build/release --target yuzu yuzu-cmd --parallel
+          sccache --show-stats
+
+      - name: Stop sccache
+        if: always() && steps.compiler-cache.outcome == 'success'
+        shell: pwsh
+        run: sccache --stop-server
+
+      - name: Save compiler objects
+        if: always() && steps.compiler-cache.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: .sccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
+
+      - name: Package Lichii Ally zip and debug symbols
+        shell: pwsh
+        env:
+          VERSION_LABEL: ${{ needs.prepare-release.outputs.version_label }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($exe in 'lichii.exe', 'eden-cli.exe') {
+            if (-not (Test-Path "build/release/bin/$exe")) {
+              throw "build/release/bin/$exe was not produced"
+            }
+          }
+
+          windeployqt --release --no-translations build/release/bin/lichii.exe
+
+          $pkgFolder = "Lichii Ally $env:VERSION_LABEL"
+          $stageDir = "stage/$pkgFolder"
+          New-Item -ItemType Directory -Force -Path $stageDir, stage/symbols, out | Out-Null
+          Copy-Item -Path build/release/bin/* -Destination $stageDir -Recurse -Force
+
+          Get-ChildItem -Path $stageDir -Filter '*.pdb' -Recurse | ForEach-Object {
+            Move-Item -Path $_.FullName -Destination stage/symbols -Force
+          }
+
+          Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' `
+            -OutFile "$stageDir/vc_redist.x64.exe"
+
+          $mainZip = "out/Lichii-Ally-$env:VERSION_LABEL-$env:VARIANT.zip"
+          $pdbZip  = "out/Lichii-Ally-$env:VERSION_LABEL-$env:VARIANT-debug-symbols-not-needed-to-play.zip"
+
+          if (Get-Command 7z -ErrorAction SilentlyContinue) {
+            7z a -tzip -mx=7 $mainZip "./$stageDir" | Out-Null
+            if ((Get-ChildItem stage/symbols).Count -gt 0) {
+              7z a -tzip -mx=7 $pdbZip ./stage/symbols/* | Out-Null
+            }
+          } else {
+            Compress-Archive -Path $stageDir -DestinationPath $mainZip -CompressionLevel Optimal
+            if ((Get-ChildItem stage/symbols).Count -gt 0) {
+              Compress-Archive -Path stage/symbols/* -DestinationPath $pdbZip -CompressionLevel Optimal
+            }
+          }
+          Get-ChildItem out | Format-Table Name, Length
+
+      - name: Upload packaged zips
+        uses: actions/upload-artifact@v7
+        with:
+          name: lichii-ally-${{ matrix.variant }}
+          path: out/*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [prepare-release, build]
+    if: needs.prepare-release.outputs.should_publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download packaged zips
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+          VERSION_LABEL: ${{ needs.prepare-release.outputs.version_label }}
+        run: |
+          set -euo pipefail
+          ls -lh artifacts
+
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          avx512_zip="Lichii-Ally-${VERSION_LABEL}-Xbox-Ally-X-AVX512.zip"
+          avx2_zip="Lichii-Ally-${VERSION_LABEL}-Universal-AVX2.zip"
+
+          sed 's/^          //' > notes.md <<EOF
+          ## [Download Lichii Ally ${VERSION_LABEL} - AVX-512 Edition (ROG Xbox Ally X / Ally X / Ally Z1E / Legion Go / HX 370)](${base}/${avx512_zip})
+
+          **Universal AVX2 Edition (MSI Claw Intel / Steam Deck Windows / ROG Xbox Ally Base Z2 A / Legion Go S Z2 Go / Other x64 PCs):** [Download ${avx2_zip}](${base}/${avx2_zip})
+
+          ---
+
+          ### Quick Start
+          1. Download the archive matching your processor architecture above (**${avx512_zip}** for AMD Zen 4 / Zen 5 handhelds, or **${avx2_zip}** for Intel Core Ultra, AMD Zen 2 / Zen 3+, and non-AVX-512 systems), extract **\`Lichii Ally ${VERSION_LABEL}\`**, and launch **\`lichii.exe\`**. *(If Windows prompts for Visual C++ runtime libraries, run \`vc_redist.x64.exe\` included in the folder.)*
+          2. Install your legally dumped keys and firmware, then add your games directory.
+          3. All handheld optimizations - \`clang-cl\` 22 ThinLTO + PGO, Windows 11 hybrid CPU thread scheduling, UMA-safe memory and BC3 texture cache management, automatic DLSS to AMD FSR 3.1 replacement, Borderless Windowed Fullscreen, and **40 FPS** 120 Hz VRR Genlock - are enabled out of the box.
+
+          ### What's New in ${VERSION_LABEL}
+          - **AMD Full 120K Shader Preparation (Dynamic Logic Op Conversion):** Converts NVIDIA-recorded shaders for AMD's Windows driver so "Preparing shaders" prepares all 120,461 shaders on AMD Radeon GPUs (Radeon 890M / 780M / RDNA 3.5) instead of skipping 116,373 shaders, completely eliminating shader compilation stutters when exploring new areas.
+          - **Fixed Title Bar Name & Version Display:** Window title bar now cleanly and correctly displays \`Lichii Ally | v6.0\` at idle and in-game, fixing the previous commit-hash and clipped name issue.
+          - **APU Conservative Texture Cache Budget (Fixes 94% RAM Freeze):** Caps the texture cache to 1536 MiB expected / 2048 MiB critical on integrated GPUs (Radeon 890M / 780M), preventing the texture cache from ballooning to 15 GB and exhausting 94% of physical RAM on 24 GB APUs.
+          - **Dynamic Resolution Scaling (DRS) Bilinear Neural Bypass:** Blits tonemapped frames bilinearly in *Ocarina of Time* across all dynamic resolutions (1440x810, 1120x630, 1024x576) using Fermi2D hardware acceleration, cleanly skipping heavy Tensor Core neural network shaders and restoring 40-60 FPS.
+          - **AMD Stability Tuning (EDS2 & Shader Libraries Safe Default):** Automatically disables buggy shader libraries (GPL) on AMD Windows proprietary drivers to prevent driver crashes, and standardizes Extended Dynamic State to EDS2.
+          - **Null Image View Upload Safeguard:** Protects \`PrepareImageView\` from attempting to process null image view IDs (\`NULL_IMAGE_VIEW_ID\`), preventing assertion failures and crashes during scene transitions.
+          - **Handheld Mode & Handheld Controls Out-of-the-Box:** Defaults to Handheld console mode and pre-binds controller profiles for smooth handheld gaming.
+
+          ### Recommended System Settings (ASUS ROG Xbox Ally X)
+          - **Armoury Crate SE VRAM:** **8 GB** (leaves 16 GB free for Windows, JIT, and shader compilation).
+          - **Display:** **1080p @ 120 Hz** with **AMD FreeSync Premium (VRR) Enabled** *(disable Radeon Anti-Lag, Radeon Boost, and AFMF in AMD Software)*.
+          - **Operating Mode (TDP):** **17W-20W** for **40 FPS** battery play, **25W-30W** for **60 FPS**, or **13W-15W** for **30 FPS**.
+
+          ### Controller Shortcuts (Xbox Full Screen Experience Compatible)
+          - **\`View + R3\`** *(or \`F7\` / status bar button)*: Cycle target frame rate live (**40 / 60 / 30 FPS**).
+          - **\`View + L3\`** *(or \`F11\`)*: Toggle Borderless Fullscreen.
+          - **\`Menu + R3\`** *(or \`Ctrl + V\`)*: Toggle Performance Overlay.
+
+          *(Archives ending in \`-debug-symbols-not-needed-to-play.zip\` contain \`.pdb\` symbols for crash analysis only and are not required for gameplay.)*
+          EOF
+
+          title="Lichii Ally ${VERSION_LABEL} - ROG Xbox Ally X & Windows Handhelds"
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --title "${title}" --notes-file notes.md
+            gh release upload "${TAG}" artifacts/*.zip --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            gh release create "${TAG}" artifacts/*.zip \
+              --repo "${GITHUB_REPOSITORY}" \
+              --verify-tag \
+              --title "${title}" \
+              --notes-file notes.md
+          fi

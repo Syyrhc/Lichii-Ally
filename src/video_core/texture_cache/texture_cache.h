@@ -427,6 +427,11 @@ void TextureCache<P>::ApplyThresholdOverrides(bool log) {
     if constexpr (requires { runtime.GetDeviceMemoryBudget(); }) {
         max_critical = (std::max)(max_critical, runtime.GetDeviceMemoryBudget() / 8 * 5);
     }
+    if constexpr (requires { runtime.IsIntegrated(); }) {
+        if (runtime.IsIntegrated()) {
+            max_critical = (std::min)(max_critical, u64{2048_MiB});
+        }
+    }
     critical_memory = (std::min)(critical_memory, max_critical);
     expected_memory =
         (std::min)(expected_memory, critical_memory - (std::min)(critical_memory, u64{768_MiB}));
@@ -5268,7 +5273,7 @@ void TextureCache<P>::PrepareImage(ImageId image_id, bool is_modification, bool 
 template <class P>
 void TextureCache<P>::PrepareImageView(ImageViewId image_view_id, bool is_modification,
                                        bool invalidate) {
-    if (!image_view_id) {
+    if (!image_view_id || image_view_id == NULL_IMAGE_VIEW_ID) {
         return;
     }
     const ImageViewBase& image_view = slot_image_views[image_view_id];
