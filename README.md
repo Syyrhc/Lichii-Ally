@@ -84,23 +84,54 @@ Testing on an ASUS ROG Xbox Ally X, ROG Ally (Z1E / X), Lenovo Legion Go, MSI Cl
 6. **`clang-cl` 22 + ThinLTO + PGO + Upstream `nx2` Fixes:**
    - Compiled with LLVM 22.1.8, ThinLTO, and Profile-Guided Optimization (`lichii-windows.profdata`), incorporating non-blocking Switch 2 asynchronous pipeline skipping (`NativeAsyncDraws::Skip`), *Ocarina of Time* anti-aliasing tensor network bypass (`No sharpening` by default for +20% Kokiri Forest FPS), delayed puller fence release, AMD compare-sampler and blend state fixes, Turing macro JIT fallback recovery, and AV1 cutscene audio/video synchronization.
 
-## Recommended System Configuration (ROG Xbox Ally X)
+## Recommended System Configuration (ROG Ally & ROG Xbox Ally X)
 
-| Component | Recommended Setting | Technical Rationale |
-|---|---|---|
-| **Armoury Crate SE - GPU Memory (VRAM)** | **6 GB** for the first memory test | Reserves 2 GB less RAM for the GPU than the 8 GB setting. Restart the Ally after changing it. |
-| **Lichii - Memory Layout** | **12 GiB (Switch 2) / 6 GiB (Switch 1)** | Switch 2 titles retain the required 12 GiB virtual memory layout with `EDEN_NX2_SEC_RESERVE` on-demand physical commit, while detected Windows handhelds default to 6 GiB DRAM for Switch 1 titles. |
-| **Windows Display Settings** | **1080p @ 120 Hz + FreeSync (VRR) Enabled** | Enables exact `120 Hz / 3` Genlock cadence at 40 FPS and absorbs minor frame-time variance. |
-| **AMD Software: Adrenalin Edition** | **Disable Radeon Anti-Lag, Radeon Boost, and AFMF** | Prevents driver-level frame queues from interfering with the emulator's internal low-latency host pacer. |
-| **Operating Mode (TDP)** | **17W-20W** (40 FPS) / **25W-30W** (60 FPS) / **13W-15W** (30 FPS) | Matches APU package power to your selected target frame rate and 80 Wh battery life goal. |
+Follow this complete checklist to maximize FPS, avoid out-of-memory stalls, and lock in smooth 120 Hz VRR frame pacing on ASUS ROG Ally handhelds.
+
+### 1. ASUS Armoury Crate SE & BIOS Settings
+| Setting | ROG Xbox Ally X (24 GB) | ROG Ally Z1E / Z1 (16 GB) | Why This Matters |
+|---|---|---|---|
+| **GPU Memory Assigned to GPU (VRAM)** | **6 GB** *(recommended)* or **8 GB** | **4 GB** | On 24 GB models, 6 GB VRAM leaves **18 GB** of system RAM for Windows 11, guest memory, and shader compilation. Always restart the Ally after changing VRAM. |
+| **Control Mode (Command Center)** | **Gamepad Mode** *(or Auto)* | **Gamepad Mode** | Lichii Ally v6.2 auto-detects and maps `Xbox 360 Controller 0` to Handheld mode on launch when Gamepad Mode is active. |
+| **Operating Mode / Manual TDP** | **17W-20W** *(40 FPS)* / **25W-30W** *(60 FPS+)* / **13W-15W** *(30 FPS)* | **18W-25W** *(Performance / Turbo)* | RDNA 3.5 efficiency peaks at 17W-20W for 40 FPS (`120 Hz / 3` cadence). Use 25W+ when targeting 60 FPS or high-refresh modes. |
+| **Refresh Rate (Command Center)** | **120 Hz** at **1080p** | **120 Hz** at **1080p** | Leaving the panel at 60 Hz prevents proper VRR Genlock engagement at 40 FPS and 80+ FPS. |
+
+### 2. Windows 11 Display & Power Settings
+- **Enable 120 Hz Refresh Rate:** Go to **Settings > System > Display > Advanced display** and set **Choose a refresh rate** to **120.00 Hz**.
+- **Enable Variable Refresh Rate (VRR):** Go to **Settings > System > Display > Graphics > Change default graphics settings** and turn **Variable Refresh Rate** **ON**.
+- **Page File (Virtual Memory):** Leave Windows page file on **System Managed** (at least 16-32 GB capacity available on SSD) so Windows commit limit stays well above Switch 2 virtual reservations.
+
+### 3. AMD Software: Adrenalin Edition
+Open **AMD Software > Settings (Gear Icon) > Display & Gaming** and apply:
+- **AMD FreeSync Premium:** **Enabled** (critical for smooth frame presentation at 40 FPS and variable frame rates).
+- **Radeon Anti-Lag:** **Disabled** (conflicts with the emulator's internal low-latency frame pacer and causes micro-stuttering).
+- **Radeon Boost:** **Disabled**.
+- **AMD Fluid Motion Frames (AFMF):** **Disabled** (disrupts frame pacing and introduces HUD artifacts).
+- **Radeon Chill / Frame Rate Target Control (FRTC):** **Disabled** (let Lichii Ally manage frame caps).
+- **Shader Cache:** Keep AMD Driver Shader Cache enabled (default **AMD Optimized**).
+
+### 4. Lichii Ally v6.2 Recommended Emulator Settings
+These settings are pre-configured automatically on first launch, and can be verified under **Emulation > Configure**:
+
+| Category | Setting | Recommended Value | Technical Rationale |
+|---|---|---|---|
+| **System** | **Console Mode** | **Handheld** | Reduces internal render targets and heavy effects for +20% to +35% higher FPS and lower VRAM use on 7" handheld screens. |
+| **Core** | **Memory Layout** | **12 GiB (Switch 2)** / **6 GiB (Switch 1)** | Switch 2 titles require the 12 GiB guest heap layout (`9809 MiB` app pool) to avoid guest allocator NULL crashes; `EDEN_NX2_SEC_RESERVE` commits physical RAM only as pages are touched. |
+| **Graphics** | **Backend / GPU Accuracy** | **Vulkan** / **Low (Normal)** | High/Accurate is no longer needed since v6.x compiles all 120,461 shaders for AMD RDNA ahead of time. |
+| **Graphics** | **VSync Mode & Async Present** | **Mailbox** + **Async Presentation ON** | Delivers frames instantaneously to the 120 Hz FreeSync display with minimal input lag. |
+| **Graphics** | **ASTC Recompression** | **BC3 (Medium)** | Cuts VRAM bandwidth pressure by ~4x on APUs without native ASTC hardware decoders. |
+| **Graphics** | **Ocarina of Time Anti-Aliasing** | **No sharpening** *(max FPS)* or **FSR 3.1 / FSR 4** | Bypasses the game's heavy neural AA pass for maximum FPS, or switches cleanly to AMD FSR. |
+| **Graphics > Adv.** | **Mesh Shaders** | **Automatic** *(Compute Fallback on AMD)* | Uses AMD compute fallback (`#814`) to prevent RDNA driver hangs on mesh shader draws. |
+| **Controls** | **Player 1 / Handheld** | **Xbox 360 Controller 0** | Auto-mapped on boot even when upgrading from older Keyboard Only configs. |
 
 ## Controller and Keyboard Shortcuts
 
 | Action | Controller Shortcut | Keyboard Shortcut |
 |---|---|---|
 | Cycle Target Frame Rate (**40 / 60 / 30 FPS**) | `View + R3` *(Right Stick Click)* | `F7` *(or status bar button)* |
+| Toggle Live High Refresh Rate (*Ocarina of Time* >60 FPS) | - | `Ctrl + U` |
 | Toggle Borderless Fullscreen | `View + L3` *(Left Stick Click)* | `F11` |
-| Toggle Performance Overlay | `Menu + R3` *(Right Stick Click)* | `Ctrl + V` |
+| Toggle Performance Overlay (FPS / RAM / VRAM) | `Menu + R3` *(Right Stick Click)* | `Ctrl + V` |
 | Pause / Resume Emulation | `Home + Plus` | `F4` |
 | Stop Emulation | `L + Plus + Minus` | `F5` |
 
