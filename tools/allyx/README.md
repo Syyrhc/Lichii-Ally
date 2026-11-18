@@ -26,7 +26,25 @@ The same motion/input source was built in the Performance14 Windows x64 package.
 The preceding Performance13 Direct ROG Ally X session recorded 462 delivery
 reports; 244 had nonzero motion, with matching controller and guest peak values.
 This confirms delivery in that session, not measured physical latency or universal
-device compatibility. A complete build of this isolated contribution branch has
-not yet been run. Other performance and renderer changes are excluded.
+device compatibility. Other performance and renderer changes are excluded.
+
+The isolated contribution at `fda84acb97ef4e53b2de70131854c6f74aea80de`
+completed a full Windows x64 Release GUI build on November 18, 2026, with native
+Windows motion enabled. Motion math checks and the synthetic six-axis service
+checks passed, with service tracing tested both off and on. This build has not
+had a new gameplay or physical latency test.
+
+The local clang-cl 22.1.8 / MSVC 14.51.36231 combination required
+`_USE_STD_VECTOR_ALGORITHMS=0` for
+`src/shader_recompiler/ir_opt/global_memory_to_storage_buffer_pass.cpp` only,
+to avoid an existing STL vectorized-find `unexpected size` assertion. This was
+applied through a local CMake project include; neither shader source changes nor
+the workaround are part of this contribution. The successful build therefore
+does not establish that the default configuration builds on that toolchain.
+
+The local Qt installation also lacked `translations/catalogs.json`; the build
+completed with translations unavailable. See
+[PR #5](https://github.com/Syyrhc/Lichii-Ally/pull/5) for the build result and
+executable checksum.
 
 Prepared with AI assistance from the contributor's local Ally X development work.
