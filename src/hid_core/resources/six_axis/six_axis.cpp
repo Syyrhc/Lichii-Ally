@@ -4,6 +4,10 @@
 // SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <algorithm>
+#include <cstdlib>
+#include <string_view>
+
 #include "common/common_types.h"
 #include "core/core_timing.h"
 #include "hid_core/frontend/emulated_controller.h"
@@ -16,8 +20,59 @@
 
 namespace Service::HID {
 
+namespace {
+Core::HID::SixAxisSensorHandle GetSamplingHandle(Core::HID::SixAxisSensorHandle handle) {
+    // Palma exposes a Fullkey sensor handle. A raw Pokeball style has no sampling ring.
+    if (handle.npad_type == Core::HID::NpadStyleIndex::Pokeball) {
+        handle.npad_type = Core::HID::NpadStyleIndex::None;
+    }
+    return handle;
+}
+} // namespace
+
+struct SixAxis::MotionTrace {
+    struct Window {
+        u64 aruid{};
+        Core::HID::NpadStyleIndex style{Core::HID::NpadStyleIndex::None};
+        std::string_view gate;
+        u32 count{};
+        float controller_peak{};
+        float guest_peak{};
+        bool reported_motion{};
+    };
+    std::array<std::array<std::array<Window, 2>, NPAD_COUNT>, AruidIndexMax> windows{};
+
+    void Observe(std::size_t applet, std::size_t pad, std::size_t slot, u64 aruid,
+                 Core::HID::NpadStyleIndex style, std::string_view gate, float controller_speed,
+                 float guest_speed, s64 sequence) {
+        auto& window = windows[applet][pad][slot];
+        const bool changed = window.aruid != aruid || window.style != style || window.gate != gate;
+        if (changed) {
+            window = {.aruid = aruid, .style = style, .gate = gate};
+        }
+        ++window.count;
+        window.controller_peak = std::max(window.controller_peak, controller_speed);
+        window.guest_peak = std::max(window.guest_peak, guest_speed);
+        const bool first_movement = !window.reported_motion && guest_speed > 0.007f;
+        if (changed || first_movement || (sequence != 0 && window.count >= 2000)) {
+            LOG_INFO(Service_HID, "Six-axis delivery: applet {} npad {} style {} slot {} {}, "
+                     "sample {}, {} updates, peak turns/s controller {:.4f} guest {:.4f}",
+                     aruid, IndexToNpadIdType(pad), style, slot, gate, sequence, window.count,
+                     window.controller_peak, window.guest_peak);
+            window.count = 0;
+            window.controller_peak = 0;
+            window.guest_peak = 0;
+            window.reported_motion |= first_movement;
+        }
+    }
+};
+
 SixAxis::SixAxis(Core::HID::HIDCore& hid_core_, std::shared_ptr<NPad> npad_)
     : ControllerBase{hid_core_}, npad{npad_} {
+    const char* trace = std::getenv("EDEN_ALLYX_MOTION_TRACE");
+    if (trace && std::string_view{trace} == "1") {
+        motion_trace = std::make_unique<MotionTrace>();
+    }
     for (std::size_t i = 0; i < controller_data.size(); ++i) {
         auto& controller = controller_data[i];
         controller.device = hid_core.GetEmulatedControllerByIndex(i);
@@ -48,12 +103,15 @@ void SixAxis::OnUpdate(const Core::Timing::CoreTiming& core_timing) {
             auto& controller = controller_data[i];
             const auto& controller_type = controller.device->GetNpadStyleIndex();
 
-            if (!data->flag.enable_six_axis_sensor) {
-                continue;
-            }
-
             if (controller_type == Core::HID::NpadStyleIndex::None ||
                 !controller.device->IsConnected()) {
+                continue;
+            }
+            if (!data->flag.enable_six_axis_sensor) {
+                if (motion_trace) {
+                    motion_trace->Observe(aruid_index, i, 0, data->aruid, controller_type,
+                                          "applet disabled", 0, 0, 0);
+                }
                 continue;
             }
 
@@ -80,16 +138,17 @@ void SixAxis::OnUpdate(const Core::Timing::CoreTiming& core_timing) {
             sixaxis_left_lifo_state = {};
             sixaxis_right_lifo_state = {};
 
-            if (controller.sixaxis_sensor_enabled && Settings::values.motion_enabled.GetValue()) {
-                controller.sixaxis_at_rest = true;
-                for (std::size_t e = 0; e < motion_state.size(); ++e) {
-                    controller.sixaxis_at_rest =
-                        controller.sixaxis_at_rest && motion_state[e].is_at_rest;
-                }
-            }
-
+            std::array<const Core::HID::SixAxisSensorState*, 2> trace_states{};
+            std::array<bool, 2> trace_enabled{};
+            const bool motion_enabled = Settings::values.motion_enabled.GetValue();
             const auto set_motion_state = [&](Core::HID::SixAxisSensorState& state,
-                                              const Core::HID::ControllerMotion& hid_state) {
+                                              SixaxisParameters& sensor, std::size_t slot) {
+                const auto& hid_state = motion_state[slot];
+                if (motion_trace) {
+                    trace_states[slot] = &state;
+                    trace_enabled[slot] = sensor.enabled;
+                }
+                sensor.at_rest = !sensor.enabled || !motion_enabled || hid_state.is_at_rest;
                 using namespace std::literals::chrono_literals;
                 static constexpr Core::HID::SixAxisSensorState default_motion_state = {
                     .delta_time = std::chrono::nanoseconds(5ms).count(),
@@ -102,11 +161,7 @@ void SixAxis::OnUpdate(const Core::Timing::CoreTiming& core_timing) {
                         },
                     .attribute = {1},
                 };
-                if (!controller.sixaxis_sensor_enabled) {
-                    state = default_motion_state;
-                    return;
-                }
-                if (!Settings::values.motion_enabled.GetValue()) {
+                if (!sensor.enabled || !motion_enabled) {
                     state = default_motion_state;
                     return;
                 }
@@ -123,24 +178,24 @@ void SixAxis::OnUpdate(const Core::Timing::CoreTiming& core_timing) {
                 ASSERT(false);
                 break;
             case Core::HID::NpadStyleIndex::Fullkey:
-                set_motion_state(sixaxis_fullkey_state, motion_state[0]);
+                set_motion_state(sixaxis_fullkey_state, controller.sixaxis_fullkey, 0);
                 break;
             case Core::HID::NpadStyleIndex::Handheld:
-                set_motion_state(sixaxis_handheld_state, motion_state[0]);
+                set_motion_state(sixaxis_handheld_state, controller.sixaxis_handheld, 0);
                 break;
             case Core::HID::NpadStyleIndex::JoyconDual:
-                set_motion_state(sixaxis_dual_left_state, motion_state[0]);
-                set_motion_state(sixaxis_dual_right_state, motion_state[1]);
+                set_motion_state(sixaxis_dual_left_state, controller.sixaxis_dual_left, 0);
+                set_motion_state(sixaxis_dual_right_state, controller.sixaxis_dual_right, 1);
                 break;
             case Core::HID::NpadStyleIndex::JoyconLeft:
-                set_motion_state(sixaxis_left_lifo_state, motion_state[0]);
+                set_motion_state(sixaxis_left_lifo_state, controller.sixaxis_left, 0);
                 break;
             case Core::HID::NpadStyleIndex::JoyconRight:
-                set_motion_state(sixaxis_right_lifo_state, motion_state[1]);
+                set_motion_state(sixaxis_right_lifo_state, controller.sixaxis_right, 1);
                 break;
             case Core::HID::NpadStyleIndex::Pokeball:
                 using namespace std::literals::chrono_literals;
-                set_motion_state(sixaxis_fullkey_state, motion_state[0]);
+                set_motion_state(sixaxis_fullkey_state, controller.sixaxis_fullkey, 0);
                 sixaxis_fullkey_state.delta_time = std::chrono::nanoseconds(15ms).count();
                 break;
             default:
@@ -172,6 +227,29 @@ void SixAxis::OnUpdate(const Core::Timing::CoreTiming& core_timing) {
             sixaxis_dual_right_lifo.lifo.WriteNextEntry(sixaxis_dual_right_state);
             sixaxis_left_lifo.lifo.WriteNextEntry(sixaxis_left_lifo_state);
             sixaxis_right_lifo.lifo.WriteNextEntry(sixaxis_right_lifo_state);
+            if (motion_trace) {
+                for (std::size_t slot = 0; slot < trace_states.size(); ++slot) {
+                    const auto* state = trace_states[slot];
+                    if (!state) {
+                        continue;
+                    }
+                    const bool handheld = IndexToNpadIdType(i) == Core::HID::NpadIdType::Handheld;
+                    const bool written = state != (handheld ? &sixaxis_fullkey_state
+                                                           : &sixaxis_handheld_state);
+                    const char* gate = "enabled";
+                    if (!written) {
+                        gate = "style buffer skipped";
+                    } else if (!trace_enabled[slot]) {
+                        gate = "handle stopped";
+                    } else if (!motion_enabled) {
+                        gate = "motion disabled";
+                    }
+                    motion_trace->Observe(aruid_index, i, slot, data->aruid, controller_type, gate,
+                                          motion_state[slot].gyro.Length(),
+                                          written ? state->gyro.Length() : 0,
+                                          written ? state->sampling_number : 0);
+                }
+            }
         }
     }
 }
@@ -214,8 +292,8 @@ Result SixAxis::IsSixAxisSensorAtRest(const Core::HID::SixAxisSensorHandle& sixa
         return is_valid;
     }
 
-    const auto& controller = GetControllerFromHandle(sixaxis_handle);
-    is_at_rest = controller.sixaxis_at_rest;
+    std::scoped_lock lock{*shared_mutex};
+    is_at_rest = GetSixaxisState(GetSamplingHandle(sixaxis_handle)).at_rest;
     return ResultSuccess;
 }
 
@@ -283,8 +361,19 @@ Result SixAxis::SetSixAxisEnabled(const Core::HID::SixAxisSensorHandle& sixaxis_
         return is_valid;
     }
 
-    auto& controller = GetControllerFromHandle(sixaxis_handle);
-    controller.sixaxis_sensor_enabled = sixaxis_status;
+    std::scoped_lock lock{*shared_mutex};
+    auto& sensor = GetSixaxisState(GetSamplingHandle(sixaxis_handle));
+    const bool changed = sensor.enabled != sixaxis_status;
+    sensor.enabled = sixaxis_status;
+    if (!sixaxis_status) {
+        sensor.at_rest = true;
+    }
+    if (motion_trace && (changed || !sensor.traced_request)) {
+        sensor.traced_request = true;
+        LOG_INFO(Service_HID, "Six-axis handle {}: npad {} style {} device {}",
+                 sixaxis_status ? "started" : "stopped", sixaxis_handle.npad_id,
+                 sixaxis_handle.npad_type, sixaxis_handle.device_index);
+    }
     return ResultSuccess;
 }
 
@@ -363,7 +452,10 @@ SixAxis::SixaxisParameters& SixAxis::GetSixaxisState(
         if (sixaxis_handle.device_index == Core::HID::DeviceIndex::Left) {
             return controller.sixaxis_dual_left;
         }
-        return controller.sixaxis_dual_right;
+        if (sixaxis_handle.device_index == Core::HID::DeviceIndex::Right) {
+            return controller.sixaxis_dual_right;
+        }
+        return controller.sixaxis_unknown;
     case Core::HID::NpadStyleIndex::JoyconLeft:
         return controller.sixaxis_left;
     case Core::HID::NpadStyleIndex::JoyconRight:
@@ -386,7 +478,10 @@ const SixAxis::SixaxisParameters& SixAxis::GetSixaxisState(
         if (sixaxis_handle.device_index == Core::HID::DeviceIndex::Left) {
             return controller.sixaxis_dual_left;
         }
-        return controller.sixaxis_dual_right;
+        if (sixaxis_handle.device_index == Core::HID::DeviceIndex::Right) {
+            return controller.sixaxis_dual_right;
+        }
+        return controller.sixaxis_unknown;
     case Core::HID::NpadStyleIndex::JoyconLeft:
         return controller.sixaxis_left;
     case Core::HID::NpadStyleIndex::JoyconRight:

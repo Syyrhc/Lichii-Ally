@@ -34,6 +34,10 @@
 #include "input_common/drivers/android.h"
 #endif
 
+#ifdef HAVE_WINDOWS_MOTION
+#include "input_common/drivers/windows_motion.h"
+#endif
+
 namespace InputCommon {
 
 /// Dummy engine to get periodic updates
@@ -83,6 +87,9 @@ struct InputSubsystem::Impl {
         RegisterEngine("gcpad", gcadapter);
 #endif
         RegisterEngine("cemuhookudp", udp_client);
+#ifdef HAVE_WINDOWS_MOTION
+        RegisterEngine("windows_motion", windows_motion);
+#endif
         RegisterEngine("tas", tas_input);
         RegisterEngine("camera", camera);
 #ifdef __ANDROID__
@@ -117,6 +124,9 @@ struct InputSubsystem::Impl {
         UnregisterEngine(gcadapter);
 #endif
         UnregisterEngine(udp_client);
+#ifdef HAVE_WINDOWS_MOTION
+        UnregisterEngine(windows_motion);
+#endif
         UnregisterEngine(tas_input);
         UnregisterEngine(camera);
 #ifdef __ANDROID__
@@ -154,6 +164,10 @@ struct InputSubsystem::Impl {
 #endif
         auto udp_devices = udp_client->GetInputDevices();
         devices.insert(devices.end(), udp_devices.begin(), udp_devices.end());
+#ifdef HAVE_WINDOWS_MOTION
+        auto windows_motion_devices = windows_motion->GetInputDevices();
+        devices.insert(devices.end(), windows_motion_devices.begin(), windows_motion_devices.end());
+#endif
 #ifdef HAVE_SDL3
         auto joycon_devices = joycon->GetInputDevices();
         devices.insert(devices.end(), joycon_devices.begin(), joycon_devices.end());
@@ -189,6 +203,11 @@ struct InputSubsystem::Impl {
         if (engine == udp_client->GetEngineName()) {
             return udp_client;
         }
+#ifdef HAVE_WINDOWS_MOTION
+        if (engine == windows_motion->GetEngineName()) {
+            return windows_motion;
+        }
+#endif
 #ifdef HAVE_SDL3
         if (engine == sdl->GetEngineName()) {
             return sdl;
@@ -301,6 +320,9 @@ struct InputSubsystem::Impl {
         gcadapter->BeginConfiguration();
 #endif
         udp_client->BeginConfiguration();
+#ifdef HAVE_WINDOWS_MOTION
+        windows_motion->BeginConfiguration();
+#endif
 #ifdef HAVE_SDL3
         sdl->BeginConfiguration();
         joycon->BeginConfiguration();
@@ -317,6 +339,9 @@ struct InputSubsystem::Impl {
         gcadapter->EndConfiguration();
 #endif
         udp_client->EndConfiguration();
+#ifdef HAVE_WINDOWS_MOTION
+        windows_motion->EndConfiguration();
+#endif
 #ifdef HAVE_SDL3
         sdl->EndConfiguration();
         joycon->EndConfiguration();
@@ -345,6 +370,10 @@ struct InputSubsystem::Impl {
     std::shared_ptr<Camera> camera;
     std::shared_ptr<VirtualAmiibo> virtual_amiibo;
     std::shared_ptr<VirtualGamepad> virtual_gamepad;
+
+#ifdef HAVE_WINDOWS_MOTION
+    std::shared_ptr<WindowsMotion> windows_motion;
+#endif
 
 #ifdef ENABLE_LIBUSB
     std::shared_ptr<GCAdapter> gcadapter;
@@ -452,6 +481,14 @@ ButtonMapping InputSubsystem::GetButtonMappingForDevice(const Common::ParamPacka
 
 MotionMapping InputSubsystem::GetMotionMappingForDevice(const Common::ParamPackage& device) const {
     return impl->GetMotionMappingForDevice(device);
+}
+
+bool InputSubsystem::IsNativeMotionAvailable() const {
+#ifdef HAVE_WINDOWS_MOTION
+    return impl->windows_motion && impl->windows_motion->IsAvailable();
+#else
+    return false;
+#endif
 }
 
 Common::Input::ButtonNames InputSubsystem::GetButtonName(const Common::ParamPackage& params) const {

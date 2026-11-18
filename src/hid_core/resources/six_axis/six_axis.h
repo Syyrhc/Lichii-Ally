@@ -61,7 +61,12 @@ public:
 private:
     static constexpr std::size_t NPAD_COUNT = 10;
 
+    struct MotionTrace;
+
     struct SixaxisParameters {
+        bool enabled{true};
+        bool at_rest{true};
+        bool traced_request{};
         bool is_fusion_enabled{true};
         bool unaltered_passthrough{false};
         Core::HID::SixAxisSensorFusionParameters fusion{};
@@ -75,8 +80,6 @@ private:
         Core::HID::EmulatedController* device = nullptr;
 
         // Motion parameters
-        bool sixaxis_at_rest{true};
-        bool sixaxis_sensor_enabled{true};
         SixaxisParameters sixaxis_fullkey{};
         SixaxisParameters sixaxis_handheld{};
         SixaxisParameters sixaxis_dual_left{};
@@ -107,6 +110,7 @@ private:
     const NpadControllerData& GetControllerFromNpadIdType(Core::HID::NpadIdType npad_id) const;
 
     std::shared_ptr<NPad> npad;
+    std::unique_ptr<MotionTrace> motion_trace;
     std::array<NpadControllerData, NPAD_COUNT> controller_data{};
 };
 } // namespace Service::HID

@@ -183,6 +183,10 @@ QString ConfigureInputPlayer::ButtonToText(const Common::ParamPackage& param) {
         return QObject::tr("[not set]");
     }
 
+    if (param.Get("engine", "") == "windows_motion" && param.Has("motion")) {
+        return tr("Built-in Windows motion");
+    }
+
     const QString toggle = QString::fromStdString(param.Get("toggle", false) ? "~" : "");
     const QString inverted = QString::fromStdString(param.Get("inverted", false) ? "!" : "");
     const QString invert = QString::fromStdString(param.Get("invert", "+") == "-" ? "-" : "");
@@ -473,6 +477,24 @@ ConfigureInputPlayer::ConfigureInputPlayer(QWidget* parent, std::size_t player_i
                         emulated_controller->SetMotionParam(motion_id, {});
                         motion_map[motion_id]->setText(tr("[not set]"));
                     });
+#ifdef HAVE_WINDOWS_MOTION
+                    auto* native_motion_action = context_menu.addAction(
+                        tr("Use built-in Windows motion (ROG Ally X)"), [&] {
+                            const Common::ParamPackage device{{"engine", "windows_motion"}};
+                            const auto mappings = input_subsystem->GetMotionMappingForDevice(device);
+                            const auto mapping = mappings.find(
+                                static_cast<Settings::NativeMotion::Values>(motion_id));
+                            if (mapping != mappings.end()) {
+                                emulated_controller->SetMotionParam(motion_id, mapping->second);
+                                UpdateUI();
+                                UpdateInputDeviceCombobox();
+                            }
+                        });
+                    native_motion_action->setEnabled(input_subsystem->IsNativeMotionAvailable());
+                    native_motion_action->setToolTip(
+                        tr("Reads the device's built-in gyroscope and accelerometer. "
+                           "Both sensors must be available in Windows."));
+#endif
                     if (param.Has("motion")) {
                         context_menu.addAction(tr("Set gyro threshold"), [&] {
                             const int gyro_threshold =
@@ -1384,6 +1406,21 @@ void ConfigureInputPlayer::UpdateControllerButtonNames() {
 
 void ConfigureInputPlayer::UpdateMappingWithDefaults() {
     if (ui->comboDevices->currentIndex() == 0) {
+        return;
+    }
+
+    const int device_index = ui->comboDevices->currentIndex();
+    if (device_index < 0 || static_cast<std::size_t>(device_index) >= input_devices.size()) {
+        return;
+    }
+    const auto& selected_device = input_devices[device_index];
+    if (selected_device.Get("motion_only", false)) {
+        const auto mappings = input_subsystem->GetMotionMappingForDevice(selected_device);
+        for (const auto& [index, param] : mappings) {
+            emulated_controller->SetMotionParam(index, param);
+        }
+        UpdateUI();
+        UpdateInputDeviceCombobox();
         return;
     }
 

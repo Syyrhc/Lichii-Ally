@@ -142,6 +142,9 @@ public:
     /// Retrieves the motion mappings for the given device.
     [[nodiscard]] MotionMapping GetMotionMappingForDevice(const Common::ParamPackage& device) const;
 
+    /// Returns true when the built-in Windows gyro and accelerometer are producing data.
+    [[nodiscard]] bool IsNativeMotionAvailable() const;
+
     /// Returns an enum containing the name to be displayed from the input engine.
     [[nodiscard]] Common::Input::ButtonNames GetButtonName(
         const Common::ParamPackage& params) const;
