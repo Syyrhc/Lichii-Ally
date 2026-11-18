@@ -5944,8 +5944,11 @@ void PipelineCache::EvictUnusedPipelines() {
     // memory) they go like the rest, so a large cache can't hold their memory all session.
     constexpr size_t MaxUnusedPrebuiltPipelines = 2000;
     size_t kept_prebuilt = 0;
-    std::vector<std::pair<u64, GraphicsPipelineCacheKey>> candidates;
-    for (const auto& [key, pipeline] : graphics_cache) {
+    // No entries are inserted during selection or retirement. Erasing one flat-map entry
+    // preserves the iterators to the other candidates.
+    std::vector<std::pair<u64, decltype(graphics_cache)::iterator>> candidates;
+    for (auto it = graphics_cache.begin(); it != graphics_cache.end(); ++it) {
+        const auto& pipeline = it->second;
         if (pipeline == nullptr || pipeline.get() == current_pipeline || !pipeline->IsBuilt() ||
             pipeline->LastUse() >= cutoff) {
             continue;
@@ -5954,7 +5957,7 @@ void PipelineCache::EvictUnusedPipelines() {
             ++kept_prebuilt;
             continue;
         }
-        candidates.emplace_back(pipeline->LastUse(), key);
+        candidates.emplace_back(pipeline->LastUse(), it);
     }
     const size_t evicted = VideoCommon::GraphicsPipelinesToEvict(graphics_cache.size(),
                                                                  candidates.size(), evict_above);
@@ -5965,7 +5968,7 @@ void PipelineCache::EvictUnusedPipelines() {
                      [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
     const u64 tick = scheduler.CurrentTick();
     for (size_t i = 0; i < evicted; ++i) {
-        const auto it = graphics_cache.find(candidates[i].second);
+        const auto it = candidates[i].second;
         if (used_this_session.erase(it->second.get()) != 0) {
             used_and_evicted.insert(it->first.Hash());
         }
