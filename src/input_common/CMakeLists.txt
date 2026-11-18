@@ -37,6 +37,47 @@ add_library(input_common STATIC
     main.h
 )
 
+set(WINDOWS_MOTION_DEFAULT OFF)
+if (WIN32 AND MSVC)
+    set(WINDOWS_MOTION_DEFAULT ON)
+endif()
+option(ENABLE_WINDOWS_MOTION "Read built-in Windows gyroscope and accelerometer sensors" ${WINDOWS_MOTION_DEFAULT})
+
+if (ENABLE_WINDOWS_MOTION)
+    if (NOT WIN32 OR NOT MSVC)
+        message(FATAL_ERROR "Native Windows motion requires MSVC or clang-cl and the Windows SDK. Use -DENABLE_WINDOWS_MOTION=OFF for other toolchains.")
+    endif()
+    include(CMakePushCheckState)
+    include(CheckCXXSourceCompiles)
+    cmake_push_check_state(RESET)
+    set(CMAKE_REQUIRED_LIBRARIES windowsapp)
+    check_cxx_source_compiles("
+        #include <winrt/Windows.Foundation.h>
+        #include <winrt/Windows.Devices.Sensors.h>
+        #include <winrt/Windows.Graphics.Display.h>
+        int main() {
+            winrt::init_apartment(winrt::apartment_type::multi_threaded);
+            auto gyro = winrt::Windows::Devices::Sensors::Gyrometer::GetDefault();
+            auto accel = winrt::Windows::Devices::Sensors::Accelerometer::GetDefault();
+            if (gyro && accel) {
+                gyro.ReadingTransform(winrt::Windows::Graphics::Display::DisplayOrientations::Landscape);
+                gyro.ReportThreshold().XAxisInDegreesPerSecond(0.0);
+                accel.ReportThreshold().XAxisInGForce(0.0);
+            }
+            return 0;
+        }" HAVE_WINDOWS_SENSORS_API)
+    cmake_pop_check_state()
+    if (NOT HAVE_WINDOWS_SENSORS_API)
+        message(FATAL_ERROR "Native Windows motion requires a Windows SDK version 10.0.19041 or newer with C++/WinRT headers and WindowsApp.lib. Install it with Visual Studio, then configure from its x64 developer environment. See CMakeConfigureLog.yaml for compiler details.")
+    endif()
+    target_sources(input_common PRIVATE
+        drivers/windows_motion.cpp
+        drivers/windows_motion.h
+        drivers/windows_motion_math.h)
+    target_compile_definitions(input_common PUBLIC HAVE_WINDOWS_MOTION)
+    target_link_libraries(input_common PRIVATE windowsapp)
+endif()
+
 if (MSVC)
     target_compile_options(input_common PRIVATE
         /we4242 # 'identifier': conversion from 'type1' to 'type2', possible loss of data
